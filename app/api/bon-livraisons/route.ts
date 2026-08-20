@@ -34,7 +34,6 @@ export async function GET(req: NextRequest) {
     const dateDebut = searchParams.get('dateDebut');
     const dateFin = searchParams.get('dateFin');
     const clientId = searchParams.get('clientId');
-    const homeId = searchParams.get('homeId');
 
     // Récupérer l'utilisateur
     const user = await prisma.user.findUnique({
@@ -77,15 +76,6 @@ export async function GET(req: NextRequest) {
       whereClause.clientId = clientId;
     }
 
-    // Filtre par emplacement
-    if (homeId && homeId !== 'all' && homeId !== 'undefined') {
-      whereClause.lignes = {
-        some: {
-          homeId: homeId
-        }
-      };
-    }
-
     const [bonLivraisons, total] = await Promise.all([
       prisma.bonLivraison.findMany({
         skip,
@@ -100,7 +90,6 @@ export async function GET(req: NextRequest) {
           lignes: {
             include: {
               product: true,
-              home: true,
             }
           },
           reglements: {
@@ -217,7 +206,7 @@ Votre nouveau solde crédit est de ${nouveauSolde.toFixed(3)} DT.
 Nous vous remercions pour votre confiance.
 
 Cordialement,
-Respect Environnement Group`;
+DEMO`;
 
     const encodedMessage = encodeURIComponent(message);
     const whatsappUrl = `https://api.whatsapp.com/send/?phone=${cleanPhone}&text=${encodedMessage}&type=phone_number&app_absent=0`;
@@ -246,17 +235,6 @@ export async function POST(req: NextRequest) {
     // Récupérer l'utilisateur avec son chauffeur et son véhicule
     const user = await prisma.user.findUnique({
       where: { email: session.user?.email! },
-      include: {
-        chauffeur: {
-          include: {
-            vehicule: {
-              include: {
-                home: true
-              }
-            }
-          }
-        }
-      }
     });
 
     if (!user) {
@@ -290,34 +268,9 @@ export async function POST(req: NextRequest) {
       nameSecondClient,
       domiciliation,
       factureIds = [],
-      homeId: bodyHomeId,
       remise,
       typeRemise,
     } = body;
-
-    // ========== GESTION DU HOMEID POUR LES CHAUFFEURS ==========
-    let finalHomeId = bodyHomeId;
-
-    if (user.role === 'CHAUFFEUR') {
-      if (!user.chauffeur?.vehicule?.homeId) {
-        return NextResponse.json(
-          { error: 'Vous n\'êtes pas assigné à un véhicule avec un emplacement valide' },
-          { status: 400 }
-        );
-      }
-      finalHomeId = user.chauffeur.vehicule.homeId;
-      console.log(`[API] Chauffeur détecté: ${user.nom} - Forçage du homeId à: ${finalHomeId}`);
-    }
-
-    if (user.role === 'CHAUFFEUR') {
-      for (const ligne of lignes) {
-        if (ligne.homeId !== finalHomeId) {
-          console.log(`[API] Correction homeId pour ligne: ${ligne.homeId} -> ${finalHomeId}`);
-          ligne.homeId = finalHomeId;
-        }
-      }
-    }
-    // ========== FIN GESTION HOMEID ==========
 
     // Validations de base
     if (!numero || !clientId) {
@@ -461,32 +414,6 @@ export async function POST(req: NextRequest) {
 
     // Transaction pour créer le bon de livraison
     const bonLivraison = await prisma.$transaction(async (tx) => {
-      // 1. Vérifier le stock pour chaque ligne
-      for (const ligne of lignes) {
-        const stockLocation = await tx.stockLocation.findUnique({
-          where: {
-            productId_homeId: {
-              productId: ligne.productId,
-              homeId: ligne.homeId,
-            },
-          },
-          include: { product: true },
-        });
-
-        if (!stockLocation) {
-          const product = await tx.product.findUnique({
-            where: { id: ligne.productId }
-          });
-          throw new Error(`Le produit "${product?.designation}" n'est pas disponible dans l'emplacement sélectionné.`);
-        }
-
-        if (stockLocation.quantite < ligne.quantite) {
-          throw new Error(
-            `Stock insuffisant pour "${stockLocation.product.designation}". Disponible: ${stockLocation.quantite}, Demandé: ${ligne.quantite}`
-          );
-        }
-      }
-
       const soldeCreditActuel = await calculateClientCreditBalance(clientId);
 
       // Déterminer le montant crédit utilisé dans ce BL
@@ -521,15 +448,13 @@ export async function POST(req: NextRequest) {
           montantRestant,
           remise: remise || 0,
           detailsMixte: detailsMixte || null,
-          homeId: finalHomeId || null,
-          chauffeurId: user.role === 'CHAUFFEUR' ? user.chauffeur?.id : null,
+          chauffeurId: user.role === 'CHAUFFEUR' ? user.id : null,
           resteCredit: nouveauResteCredit,
           montantCredit: montantCreditUtilise,
           lignes: {
             createMany: {
-              data: lignes.map((l: { productId: string; homeId: string; quantite: number, prixVente?: number }) => ({
+              data: lignes.map((l: { productId: string; quantite: number, prixVente?: number }) => ({
                 productId: l.productId,
-                homeId: l.homeId,
                 quantite: l.quantite,
                 prixVente: l.prixVente ?? 0,
               }))
@@ -538,37 +463,9 @@ export async function POST(req: NextRequest) {
         },
         include: {
           client: true,
-          lignes: { include: { product: true, home: true } },
+          lignes: { include: { product: true} },
         },
       });
-
-      // 3. Diminuer le stock
-      for (const ligne of lignes) {
-        await tx.stockLocation.update({
-          where: {
-            productId_homeId: {
-              productId: ligne.productId,
-              homeId: ligne.homeId,
-            },
-          },
-          data: { quantite: { decrement: ligne.quantite } },
-        });
-
-        await tx.product.update({
-          where: { id: ligne.productId },
-          data: { quantiteStock: { decrement: ligne.quantite } },
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            productId: ligne.productId,
-            type: 'SORTIE',
-            quantite: ligne.quantite,
-            motif: `Bon de livraison ${numero}`,
-            date: new Date(),
-          },
-        });
-      }
 
       // 4. Gérer la caisse
       const today = new Date();
@@ -577,7 +474,7 @@ export async function POST(req: NextRequest) {
       let caisse = await tx.caisse.findFirst({
         where: {
           date: today,
-          chauffeurId: user.role === 'CHAUFFEUR' ? user.chauffeur?.id : null
+          chauffeurId: user.role === 'CHAUFFEUR' ? user.id : null
         }
       });
 
@@ -585,7 +482,7 @@ export async function POST(req: NextRequest) {
         caisse = await tx.caisse.create({
           data: {
             date: today,
-            chauffeurId: user.role === 'CHAUFFEUR' ? user.chauffeur?.id : null,
+            chauffeurId: user.role === 'CHAUFFEUR' ? user.id : null,
             soldeOuverture: 0,
             totalEncaissements: 0,
             totalDecaissements: 0,
@@ -623,7 +520,7 @@ export async function POST(req: NextRequest) {
           data: {
             clientId,
             nameSecondClient: nameSecondClient || null,
-            chauffeurId: user.role === 'CHAUFFEUR' ? user.chauffeur?.id : null,
+            chauffeurId: user.role === 'CHAUFFEUR' ? user.id : null,
             montant: montantTotalReglement,
             typeReglement: 'MIXTE',
             reference: numero,
@@ -687,7 +584,7 @@ export async function POST(req: NextRequest) {
           data: {
             clientId,
             nameSecondClient: nameSecondClient || null,
-            chauffeurId: user.role === 'CHAUFFEUR' ? user.chauffeur?.id : null,
+            chauffeurId: user.role === 'CHAUFFEUR' ? user.id : null,
             montant: montant,
             typeReglement: typeReglement,
             reference: reference || numero,

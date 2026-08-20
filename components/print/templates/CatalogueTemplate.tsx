@@ -29,11 +29,11 @@ interface CatalogueTemplateProps {
 }
 
 const DEFAULT_COMPANY = {
-  name: "KALLAL TECH COMPANY",
-  address: "01. Teniour chihia 3000 - SFAX",
-  phone: " 25 535 035",
-  email: "kallel@gmail.com",
-  vat: "1860077 Q/A/M/000",
+  name: "Respect Environnement Group",
+  address: "Adresse : Résidence Essalem, Bloc A au 1er étage, Bureau A.1-1, Ennasr 2, Ariana 2037",
+  phone: "25 535 035",
+  email: "reg@gmail.com",
+  vat: "1615506X/A/M/000",
 };
 
 
@@ -328,13 +328,13 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
   return (
     <div className="catalogue-container">
       <style>{catalogueStyles}</style>
-      
+
       {/* En-tête avec 3 colonnes */}
       <div className="catalogue-header">
         {/* Colonne gauche - Logo */}
         <div className="header-left">
           <img
-            src="/ktc.png"
+            src="/REG.jpeg"
             alt="Logo SIT"
             className="logo-img"
             onError={(e) => {
@@ -342,7 +342,7 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
             }}
           />
         </div>
-        
+
         {/* Colonne centre - Titre */}
         <div className="header-center">
           <div className="catalogue-title">
@@ -352,7 +352,7 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
             NOUVEL ARRIVAGE
           </div>
         </div>
-        
+
         {/* Colonne droite - Adresse société */}
         <div className="header-right">
           <p><strong>{companyInfo.name}</strong></p>
@@ -360,15 +360,15 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
           <p>Tel: {companyInfo.phone}</p>
         </div>
       </div>
-      
+
       <div className="catalogue-date">
         {formattedDate}
       </div>
-      
+
       <div className="total-products">
         {totalProducts} produit(s) en stock
       </div>
-      
+
       {/* Liste des produits par catégorie */}
       {Object.entries(productsByCategory).map(([categoryName, categoryProducts]) => (
         <div key={categoryName} className="category-section">
@@ -380,8 +380,8 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
               <div key={product.id} className="product-card">
                 <div className="product-image">
                   {product.imageUrl ? (
-                    <img 
-                      src={product.imageUrl} 
+                    <img
+                      src={product.imageUrl}
                       alt={product.designation}
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = 'none';
@@ -393,8 +393,8 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
                   </div>
                 </div>
                 <div className="product-designation">
-                  {product.designation.length > 40 
-                    ? product.designation.substring(0, 37) + "..." 
+                  {product.designation.length > 40
+                    ? product.designation.substring(0, 37) + "..."
                     : product.designation}
                 </div>
                 <div className="product-reference">
@@ -412,13 +412,13 @@ export const CatalogueTemplate: React.FC<CatalogueTemplateProps> = ({
           </div>
         </div>
       ))}
-      
+
       {/* Pied de page avec logo et adresse */}
       <div className="catalogue-footer">
         <div className="footer-content">
           <div className="footer-logo">
             <img
-              src="/ktc.png"
+              src="/REG.jpeg"
               alt="Logo SIT"
               className="footer-logo-img"
               onError={(e) => {

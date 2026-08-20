@@ -1,104 +1,64 @@
-import { prisma } from '@/lib/prisma';
-import { NextRequest, NextResponse } from 'next/server';
+// app/api/products/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
 
-// GET all products with pagination
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession();
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = parseInt(searchParams.get('limit') || '10000');
+    const search = searchParams.get('search') || '';
+    const type = searchParams.get('type') || '';
+    
     const skip = (page - 1) * limit;
-    const includeHistory = searchParams.get('includeHistory') === 'true';
-    const includeStock = searchParams.get('includeStock') === 'true';
-    const type = searchParams.get('type');
 
-    // Construire l'objet include dynamiquement
-    const include: any = {
-      category: true,
-      home: true,
-      unite: true,
-    };
-
-    if (includeStock) {
-      include.stockLocations = {
-        include: {
-          home: true,
-        },
-      };
-      include.stockParType = true;
-    }
-
-    if (includeHistory) {
-      include.historiquePrix = {
-        orderBy: { dateApplication: 'desc' },
-        take: 1,
-      };
-    }
-
-    // Construire le where
     const where: any = {};
+    
+    if (search) {
+      where.OR = [
+        { designation: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
+        { reference: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     if (type) {
       where.type = type;
     }
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
-        skip,
-        take: limit,
         where,
-        include,
+        include: {
+          category: true,
+          home: true,
+          unite: true,
+        },
         orderBy: {
           createdAt: 'desc',
         },
+        skip,
+        take: limit,
       }),
       prisma.product.count({ where }),
     ]);
 
-    // Transformer les produits
-    const productsWithExtra = products.map(product => {
-      const stockParTypeObj: Record<string, number> = {};
-      if (product.stockParType && Array.isArray(product.stockParType)) {
-        product.stockParType.forEach((item: any) => {
-          stockParTypeObj[item.typeBE] = item.quantite;
-        });
-      }
-
-      const extraFields: any = {};
-      if (includeHistory) {
-        const historiquePrix = product.historiquePrix as any;
-        extraFields.dernierPrixAchatTTC = historiquePrix?.[0]?.prixAchat || product.prixAchat;
-        extraFields.dernierPrixAchatHT = historiquePrix?.[0]?.prixAchatHT || (product as any).prixAchatHT;
-        extraFields.dernierPrixVente = historiquePrix?.[0]?.prixVente || product.prixVenteHT;
-        extraFields.derniereDateAchat = historiquePrix?.[0]?.dateApplication || null;
-      }
-
-      const uniteInfo = product.unite ? {
-        uniteNom: product.unite.nom,
-        uniteSymbole: product.unite.symbole,
-      } : {
-        uniteNom: 'Pièce',
-        uniteSymbole: 'pc',
-      };
-
-      return {
-        ...product,
-        stockParType: stockParTypeObj,
-        ...extraFields,
-        ...uniteInfo,
-        // Pour les services, on force les valeurs de stock à 0
-        quantiteStock: product.type === 'SERVICE' ? 0 : product.quantiteStock,
-        prixAchat: product.type === 'SERVICE' ? 0 : product.prixAchat,
-        prixAchatHT: product.type === 'SERVICE' ? 0 : product.prixAchatHT,
-      };
-    });
-
     return NextResponse.json({
-      data: productsWithExtra,
+      data: products,
       pagination: {
+        total,
         page,
         limit,
-        total,
-        pages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -112,57 +72,62 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession();
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Non authentifié' },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
     const {
       reference,
       code,
       designation,
-      categoryId,
-      prixAchat,
-      prixAchatHT,
       prixVente,
       tva,
-      seuilAlerte,
-      plafondRemise,
-      imageUrl,
-      uniteId,
       type,
+      categoryId,
+      uniteId,
+      homeId,
     } = body;
 
-    // Validation des champs requis
-    if (!reference || !designation || !categoryId) {
+    // Validation
+    if (!designation) {
       return NextResponse.json(
-        { error: 'Les champs référence, désignation et catégorie sont requis' },
+        { error: 'La désignation est requise' },
         { status: 400 }
       );
     }
 
-    // Vérifier si la référence existe déjà
-    const existingReference = await prisma.product.findUnique({
-      where: { reference }
-    });
-
-    if (existingReference) {
+    if (!prixVente || prixVente <= 0) {
       return NextResponse.json(
-        { error: 'Cette référence existe déjà' },
+        { error: 'Le prix de vente est requis et doit être supérieur à 0' },
         { status: 400 }
       );
     }
 
-    // Si une unité est fournie, vérifier qu'elle existe
-    if (uniteId) {
-      const unite = await prisma.unite.findUnique({
-        where: { id: uniteId }
+    const isService = type === 'SERVICE';
+
+    // Utiliser la TVA du body ou valeur par défaut
+    const tvaValue = tva !== undefined ? tva : 19;
+
+    // Vérifier si la référence existe déjà (uniquement si fournie)
+    if (reference) {
+      const existingReference = await prisma.product.findUnique({
+        where: { reference }
       });
-      if (!unite) {
+
+      if (existingReference) {
         return NextResponse.json(
-          { error: 'Unité non trouvée' },
+          { error: 'Cette référence existe déjà' },
           { status: 400 }
         );
       }
     }
 
-    // Gérer le code produit (auto-génération si vide)
+    // Gérer le code produit
     let finalCode = code;
     if (!finalCode || finalCode.trim() === "") {
       const currentYear = new Date().getFullYear();
@@ -216,67 +181,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Pour les services, forcer prixAchat = 0 et quantiteStock = 0
-    const isService = type === 'SERVICE';
-    const finalPrixAchat = isService ? 0 : prixAchat;
-    const finalPrixAchatHT = isService ? 0 : prixAchatHT;
-    const finalQuantiteStock = 0; // Toujours 0 à la création
-    const finalSeuilAlerte = isService ? 0 : seuilAlerte || 5;
+    // Calculer le prix HT à partir du TTC avec la bonne TVA
+    const prixVenteHT = tvaValue > 0 ? prixVente / (1 + tvaValue / 100) : prixVente;
 
-    // Récupérer l'entrepôt principal (uniquement pour les STOCK)
-    let defaultHome = null;
-    let finalHomeId = null; // ← MODIFICATION: Utiliser null au lieu de ""
+    // Préparer les données
+    const productData: any = {
+      reference: reference || `SERV-${Date.now()}`,
+      code: finalCode,
+      designation,
+      prixAchat: 0,
+      prixAchatHT: 0,
+      prixVente: prixVente,
+      prixVenteHT: prixVenteHT,
+      tva: tvaValue,
+      quantiteStock: 0,
+      seuilAlerte: 0,
+      plafondRemise: 0,
+      type: type || 'SERVICE',
+    };
 
-    if (!isService) {
-      defaultHome = await prisma.home.findFirst({
-        where: { nom: 'PRINCIPAL' }
-      });
+    if (categoryId) productData.categoryId = categoryId;
+    if (uniteId) productData.uniteId = uniteId;
+    if (homeId) productData.homeId = homeId;
 
-      if (!defaultHome) {
-        return NextResponse.json(
-          { error: 'Entrepôt principal non trouvé' },
-          { status: 500 }
-        );
-      }
-      finalHomeId = defaultHome.id;
-    }
-
-    // Créer le produit
     const product = await prisma.product.create({
-      data: {
-        reference,
-        code: finalCode,
-        designation,
-        categoryId,
-        homeId: finalHomeId, // ← MODIFICATION: null pour SERVICE, ID pour STOCK
-        prixAchat: finalPrixAchat,
-        prixAchatHT: finalPrixAchatHT,
-        prixVente,
-        tva: tva || 19,
-        quantiteStock: finalQuantiteStock,
-        seuilAlerte: finalSeuilAlerte,
-        plafondRemise: isService ? 0 : plafondRemise || 0,
-        imageUrl: imageUrl || null,
-        uniteId: uniteId || null,
-        type: type || 'STOCK',
-      },
+      data: productData,
       include: {
         category: true,
         home: true,
         unite: true,
       },
     });
-
-    // Si c'est un STOCK, créer aussi une entrée StockLocation
-    if (!isService && defaultHome) {
-      await prisma.stockLocation.create({
-        data: {
-          productId: product.id,
-          homeId: defaultHome.id,
-          quantite: 0,
-        },
-      });
-    }
 
     return NextResponse.json(product, { status: 201 });
   } catch (error) {

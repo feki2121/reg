@@ -140,7 +140,7 @@ PrintLayout
 ├─ Signatures
 │  ├─ Le client
 │  ├─ Le livreur
-│  └─ Pour KALLAL TECH COMPANY
+│  └─ Pour Respect Environnement Group
 └─ PrintFooter
 ```
 

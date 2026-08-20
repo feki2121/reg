@@ -15,7 +15,7 @@ function calculateTotals(lignes: any[], remise: number, remiseType: 'PERCENT' | 
     let totalTTC = 0;
 
     // Grouper les lignes par taux de TVA pour vérifier si tous les taux sont identiques
-    const tauxTVA = lignes.map(l => l.tva || 19);
+    const tauxTVA = lignes.map(l => l.tva ?? 19);
     const tauxUniques = [...new Set(tauxTVA)];
     const allSameTVA = tauxUniques.length === 1;
 
@@ -106,16 +106,14 @@ export async function GET(req: NextRequest) {
 
         const { searchParams } = new URL(req.url);
         const page = parseInt(searchParams.get('page') || '1');
-        const limit = parseInt(searchParams.get('limit') || '10');
+        const limit = parseInt(searchParams.get('limit') || '10000');
         const skip = (page - 1) * limit;
         const clientId = searchParams.get('clientId');
-        const chantierId = searchParams.get('chantierId');
         const statut = searchParams.get('statut');
 
         const where: any = {};
         if (clientId) where.clientId = clientId;
-        if (chantierId) where.chantierId = chantierId;
-        
+
         // === CORRECTION: Gérer le filtre statut ===
         if (statut) {
             // Si le statut contient des virgules, on le split en tableau
@@ -134,19 +132,14 @@ export async function GET(req: NextRequest) {
                 take: limit,
                 include: {
                     client: true,
-                    chantier: {
-                        include: {
-                            client: true,
-                        }
-                    },
                     lignes: {
                         include: {
                             product: {
                                 include: {
                                     unite: true,
+                                    category: true,
                                 }
                             },
-                            home: true,
                         },
                     },
                     reglements: {
@@ -178,7 +171,8 @@ export async function GET(req: NextRequest) {
     }
 }
 
-// POST - Créer une facture
+// app/api/factures/route.ts - Partie POST modifiée
+
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession();
@@ -193,11 +187,9 @@ export async function POST(req: NextRequest) {
         const {
             numero,
             clientId,
-            chantierId,
             date,
             lignes,
             remise,
-            remiseType,
             statut,
             type,
         } = body;
@@ -222,19 +214,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Vérifier si le chantier existe (si fourni)
-        if (chantierId) {
-            const chantier = await prisma.chantier.findUnique({
-                where: { id: chantierId },
-            });
-            if (!chantier) {
-                return NextResponse.json(
-                    { error: 'Chantier non trouvé' },
-                    { status: 404 }
-                );
-            }
-        }
-
         // Vérifier que le numéro est unique
         const existingFacture = await prisma.facture.findUnique({
             where: { numero },
@@ -247,7 +226,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Vérifier les produits
+        // ✅ Récupérer les produits avec leur TVA
         const productIds = lignes.map((l: any) => l.productId);
         const products = await prisma.product.findMany({
             where: {
@@ -257,89 +236,82 @@ export async function POST(req: NextRequest) {
                 id: true,
                 designation: true,
                 type: true,
+                tva: true, // ✅ Ajouter la TVA
+                prixVente: true,
+                prixVenteHT: true,
             },
         });
 
         const productMap = new Map(products.map(p => [p.id, p]));
 
-        // Vérifier que tous les produits existent
+        // ✅ Vérifier que tous les produits existent et récupérer leur TVA
         for (const ligne of lignes) {
-            if (!productMap.has(ligne.productId)) {
+            const product = productMap.get(ligne.productId);
+            if (!product) {
                 return NextResponse.json(
                     { error: `Produit ${ligne.productId} non trouvé` },
                     { status: 404 }
                 );
             }
+
+            // ✅ Si la TVA n'est pas définie dans la ligne, utiliser celle du produit
+            if (ligne.tva === undefined || ligne.tva === null) {
+                ligne.tva = product.tva ?? 19;
+            }
         }
 
-        // Préparer les lignes pour le calcul
-        const lignesPourCalcul = lignes.map((l: any) => ({
-            productId: l.productId,
-            quantite: l.quantite,
-            prixUnitaire: l.prixUnitaire,
-            tva: l.tva || 19,
-            remiseLigne: l.remiseLigne || 0,
-        }));
+        // Préparer les lignes pour le calcul avec la TVA correcte
+        const lignesPourCalcul = lignes.map((l: any) => {
+            const product = productMap.get(l.productId);
+            return {
+                productId: l.productId,
+                quantite: l.quantite,
+                prixUnitaire: l.prixUnitaire,
+                tva: l.tva ?? product?.tva ?? 19, // ✅ Utiliser ?? au lieu de ||
+                remiseLigne: l.remiseLigne || 0,
+            };
+        });
 
-        // Calculer les totaux avec la logique de remise
+        // Calculer les totaux avec la logique de remise (toujours en %)
         const remiseValue = remise || 0;
-        const remiseTypeValue = remiseType || 'PERCENT';
 
-        const calculResult = calculateTotals(lignesPourCalcul, remiseValue, remiseTypeValue);
+        const calculResult = calculateTotals(lignesPourCalcul, remiseValue, 'PERCENT');
+        const { totalHT, totalTVA, totalTTC } = calculResult;
 
         // Déterminer si on applique la remise par ligne ou globalement
-        const tauxTVA = lignesPourCalcul.map((l: { tva: any; }) => l.tva || 19);
+        const tauxTVA = lignesPourCalcul.map((l: { tva: any; }) => l.tva ?? 19);
         const tauxUniques = [...new Set(tauxTVA)];
         const allSameTVA = tauxUniques.length === 1;
 
         // Créer la facture
         const facture = await prisma.$transaction(async (tx) => {
-            // Créer la facture
             const newFacture = await tx.facture.create({
                 data: {
                     numero,
                     clientId,
-                    chantierId: chantierId || null,
                     date: date ? new Date(date) : new Date(),
-                    totalHT: calculResult.totalHT,
-                    totalTVA: calculResult.totalTVA,
-                    totalTTC: calculResult.totalTTC,
+                    totalHT: totalHT,
+                    totalTVA: totalTVA,
+                    totalTTC: totalTTC,
                     remise: remiseValue,
                     statut: statut || 'IMPAYEE',
                     type: type || 'DIRECTE',
                     lignes: {
                         create: lignes.map((l: any, index: number) => {
-                            // Si tous les taux sont identiques, la remise est globale
-                            let remiseLigneValue = l.remiseLigne || 0;
-                            let prixUnitaireValue = l.prixUnitaire;
-
-                            if (!allSameTVA && calculResult.remiseParLigne && calculResult.lignesCalculees) {
-                                // Utiliser les valeurs calculées avec remise proportionnelle
-                                const ligneCalc = calculResult.lignesCalculees[index];
-                                if (ligneCalc) {
-                                    // On ne stocke pas le prix après remise, on stocke le prix unitaire et la remise
-                                    // La remise sera calculée à l'affichage
-                                }
-                            }
+                            const tva = l.tva ?? productMap.get(l.productId)?.tva ?? 19;
 
                             return {
                                 productId: l.productId,
-                                homeId: l.homeId || null,
                                 quantite: l.quantite,
                                 prixUnitaire: l.prixUnitaire,
-                                remiseLigne: !allSameTVA ? calculResult.montantRemise / lignes.length : l.remiseLigne || 0,
-                                tva: l.tva || 19,
+                                remiseLigne: l.remiseLigne || 0,
+                                tva: tva, // ✅ TVA avec ?? pour gérer 0
                             };
                         }),
                     },
                 },
                 include: {
                     client: true,
-                    chantier: {
-                        include: {
-                            client: true,
-                        }
-                    },
                     lignes: {
                         include: {
                             product: {
@@ -347,7 +319,6 @@ export async function POST(req: NextRequest) {
                                     unite: true,
                                 }
                             },
-                            home: true,
                         },
                     },
                 },

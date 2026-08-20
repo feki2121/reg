@@ -8,12 +8,71 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+// ============= GESTION DES CHANTIERS =============
+
+model Unite {
+  id       String    @id @default(cuid())
+  nom      String    @unique
+  symbole  String?   // Ex: "m²", "kg", "T"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  produits Product[]
+}
+
+model Chantier {
+  id          String   @id @default(cuid())
+  nom         String
+  reference   String?  @unique // Code chantier optionnel
+  clientId    String?
+  adresse     String?
+  description String?
+  dateDebut   DateTime?
+  dateFin     DateTime?
+  statut      StatutChantier @default(EN_COURS)
+  
+  // Budget et coûts
+  budgetPrevu  Float?   @default(0)
+  coutActuel   Float    @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client? @relation(fields: [clientId], references: [id])
+  
+  // Relations avec les documents
+  bonSorties BonSortie[]
+  devis      Devis[]
+  factures   Facture[]
+  reglementDivers ReglementDivers[]
+  
+  // Suivi des consommations (optionnel)
+  consommations ConsommationChantier[]
+}
+
+model ConsommationChantier {
+  id          String   @id @default(cuid())
+  chantierId  String
+  productId   String
+  quantite    Int
+  date        DateTime @default(now())
+  bonSortieId String?  // Lien vers le bon de sortie source
+  
+  chantier Chantier @relation(fields: [chantierId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+  bonSortie BonSortie? @relation(fields: [bonSortieId], references: [id])
+  
+  @@unique([chantierId, productId, date])
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   phone     String?   @unique
   password  String
   nom       String
+  prenom       String?
   role      Role     @default(CHAUFFEUR)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -88,12 +147,9 @@ model Home {
   stockLocations          StockLocation[]
   ligneBonSortie          LigneBonSortie[]
   ligneFactureFournisseur LigneFactureFournisseur[]
-  ligneBL                 LigneBL[]  // nouvelles relations
-  ligneFacture            LigneFacture[]
   lignesBonEntree         LigneBonEntree[]          // ← Ajoutez cette ligne
   lignesInventaire LigneInventaire[]  // ← Ajoutez cette ligne
   vehicules               Vehicule[]                // ← AJOUTEZ CETTE LIGNE
-  bonLivraisons           BonLivraison[]            // ← AJOUTEZ CETTE LIGNE
 }
 
 model Category {
@@ -109,47 +165,55 @@ model Product {
   reference               String                    @unique
   code                    String?                   @unique
   designation             String
-  categoryId              String
-  homeId                  String
+  categoryId              String?                   // ← Rendre optionnel
+  homeId                  String? 
   prixAchat               Float
-  prixAchatHT             Float @default(0)
+  prixAchatHT             Float                     @default(0)
   prixVente               Float
-  prixVenteHT             Float @default(0)
-  tva                     Float   @default(19)
+  prixVenteHT             Float                     @default(0)
+  tva                     Float                     @default(19)
   quantiteStock           Int                       @default(0)
   seuilAlerte             Int                       @default(5)
   plafondRemise           Float                     @default(0)
   imageUrl                String?                  
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
+  
+  // NOUVEAUX CHAMPS
+  uniteId                 String?                   
+  unite                   Unite?                    @relation(fields: [uniteId], references: [id])
+  type                    TypeArticle               @default(STOCK)
+
+  // Relations
   historiquePrix          PrixProduitHistorique[]
   ligneBL                 LigneBL[]
   ligneDevis              LigneDevis[]
   ligneFacture            LigneFacture[]
   ligneRetourClient       LigneRetourClient[]
-  category                Category                  @relation(fields: [categoryId], references: [id])
-  home                    Home                      @relation(fields: [homeId], references: [id])
+  category                Category?                 @relation(fields: [categoryId], references: [id]) // ← Rendre optionnel
+  home                    Home?                     @relation(fields: [homeId], references: [id])
   stockMouvements         StockMovement[]
   transferts              TransfertStock[]
   stockLocations          StockLocation[]
   ligneBonSortie          LigneBonSortie[]
   ligneFactureFournisseur LigneFactureFournisseur[]
-  lignesBonEntree         LigneBonEntree[]          // ← Ajoutez cette ligne
+  lignesBonEntree         LigneBonEntree[]         
   stockParType            StockParType[] 
-  lignesInventaire LigneInventaire[]  // ← Ajoutez cette ligne
-  ligneRetourFournisseur  LigneRetourFournisseur[] // ← AJOUTER CETTE LIGNE
+  lignesInventaire        LigneInventaire[] 
+  ligneRetourFournisseur  LigneRetourFournisseur[]
+  consommations           ConsommationChantier[]
 }
 
 model PrixProduitHistorique {
   id              String   @id @default(cuid())
   productId       String
-  prixAchat       Float    // Prix d'achat TTC au moment de l'achat
-  prixAchatHT     Float    // Prix d'achat HT
-  prixVente       Float    // Prix de vente TTC appliqué
-  tva             Float    // TVA appliquée
+  prixAchat       Float    // Prix d'achat TTC
+  prixAchatHT     Float   
+  prixVente       Float    // Prix de vente TTC
+  tva             Float    
   dateApplication DateTime @default(now())
-  bonEntreeId     String?  // Référence au bon d'entrée qui a généré ce prix
-  bonEntreeNumero String?  // Numéro du bon d'entrée pour référence
+  bonEntreeId     String?  
+  bonEntreeNumero String? 
   
   product         Product  @relation(fields: [productId], references: [id])
   bonEntree       BonEntree? @relation(fields: [bonEntreeId], references: [id])
@@ -215,6 +279,7 @@ model Client {
   retourClients RetourClient[]
   bonSorties    BonSortie[]
   missions      Mission[]
+  chantiers     Chantier[]        
 }
 
 model Fournisseur { 
@@ -253,6 +318,11 @@ model Devis {
   remiseType    String        @default("PERCENT")
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+  
+  // NOUVEAU CHAMP
+  chantierId String?        // ← AJOUT
+  chantier   Chantier?      @relation(fields: [chantierId], references: [id]) // ← AJOUT
+  
   client    Client       @relation(fields: [clientId], references: [id])
   lignes    LigneDevis[]
 }
@@ -275,7 +345,6 @@ model BonLivraison {
   clientId       String
   factureId      String?
   chauffeurId    String?  
-  homeId         String?   // Entrepôt source (PRINCIPAL ou véhicule)
   statut         StatutBL  @default(EN_ATTENTE)
   modeReglement  TypeReglement?  
   montantTotal   Float     @default(0) 
@@ -297,21 +366,18 @@ model BonLivraison {
   retourClients RetourClient[]
 
   chauffeur      Chauffeur? @relation(fields: [chauffeurId], references: [id])
-  home           Home?      @relation(fields: [homeId], references: [id])
 }
  
 model LigneBL {
   id             String       @id @default(cuid())
   bonLivraisonId String
   productId      String
-  homeId         String
   quantite       Int
   quantiteRetournee Int @default(0)
   prixVente      Float        @default(0)
   remiseLigne    Float        @default(0)
   bonLivraison   BonLivraison @relation(fields: [bonLivraisonId], references: [id])
   product        Product      @relation(fields: [productId], references: [id])
-  home           Home         @relation(fields: [homeId], references: [id])
 }
 
 model Facture {
@@ -319,7 +385,7 @@ model Facture {
   numero        String             @unique
   date          DateTime           @default(now())
   clientId      String
-  bonLivraisonId String?            // facture créée à partir d'un BL
+  bonLivraisonId String?
   totalHT       Float
   totalTVA      Float
   totalTTC      Float
@@ -328,6 +394,11 @@ model Facture {
   type          TypeFacture        @default(DIRECTE)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+  
+  // NOUVEAU CHAMP
+  chantierId String?        // ← AJOUT
+  chantier   Chantier?      @relation(fields: [chantierId], references: [id]) // ← AJOUT
+  
   bonLivraisons BonLivraison[]      @relation("BonLivraisonToFactureLink")
   bonLivraisonRef BonLivraison?     @relation("BonLivraisonToFacture", fields: [bonLivraisonId], references: [id])
   client        Client             @relation(fields: [clientId], references: [id])
@@ -340,14 +411,12 @@ model LigneFacture {
   id           String  @id @default(cuid())
   factureId    String
   productId    String
-  homeId       String?
   quantite     Int
   prixUnitaire Float
   remiseLigne  Float   @default(0)
   tva          Float   @default(19)
   facture      Facture @relation(fields: [factureId], references: [id])
   product      Product @relation(fields: [productId], references: [id])
-  home         Home?   @relation(fields: [homeId], references: [id])
 }
 
 model RetourClient {
@@ -480,7 +549,11 @@ model ReglementDivers {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   
-  chauffeur     Chauffeur?       @relation(fields: [chauffeurId], references: [id], onDelete: SetNull) // ← AJOUTER CETTE LIGNE
+  // NOUVEAU CHAMP
+  chantierId    String?          // ← AJOUT
+  chantier      Chantier?        @relation(fields: [chantierId], references: [id]) // ← AJOUT
+  
+  chauffeur     Chauffeur?       @relation(fields: [chauffeurId], references: [id], onDelete: SetNull)
 }
 
 model Caisse {
@@ -575,9 +648,17 @@ model BonSortie {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
+  // NOUVEAUX CHAMPS
+  chantierId        String?          // ← AJOUT
+  chantier          Chantier?        @relation(fields: [chantierId], references: [id]) // ← AJOUT
+
+  // Relations existantes
   client         Client?          @relation(fields: [clientId], references: [id])
   lignes         LigneBonSortie[]
   stockMovements StockMovement[]
+  
+  // Nouvelle relation (optionnelle)
+  consommations  ConsommationChantier[] // ← AJOUT
 }
 
 model LigneBonSortie {
@@ -786,6 +867,18 @@ model Mission {
   tournee         Tournee       @relation(fields: [tourneeId], references: [id])
   client          Client        @relation(fields: [clientId], references: [id])
   adresse         ClientAddress @relation(fields: [adresseId], references: [id])
+}
+
+enum TypeArticle {
+  STOCK   // Matériaux avec gestion de stock
+  SERVICE // Prestations sans stock
+}
+
+enum StatutChantier {
+  EN_COURS
+  TERMINE
+  ANNULE
+  EN_ATTENTE
 }
 
 enum TourneeStatut {

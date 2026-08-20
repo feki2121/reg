@@ -2,7 +2,6 @@
 
 import React from "react";
 import { FacturePrintData, PrintFormat } from "@/types/print";
-import { PrintFooter } from "../PrintFooter";
 import { formatCurrency } from "@/lib/types";
 
 interface FactureTemplateProps {
@@ -11,10 +10,10 @@ interface FactureTemplateProps {
 }
 
 const DEFAULT_COMPANY = {
-  name: "KALLAL TECH COMPANY",
-  address: "01. Teniour chihia 3000 - SFAX",
+  name: "Respect Environnement Group",
+  address: "Adresse : Résidence Essalem, Bloc A au 1er étage, Bureau A.1-1, Ennasr 2, Ariana 2037",
   phone: "25 535 035",
-  vat: "1860077 Q/A/M/000",
+  vat: "1615506X/A/M/000",
 };
 
 // Styles pour le format ticket 48mm
@@ -337,7 +336,7 @@ const TicketContent = ({ data }: { data: FacturePrintData }) => {
       <div className="header">
         <div className="logo-container">
           <img
-            src="/ktc.png"
+            src="/REG.jpeg"
             alt="Logo"
             className="logo-img"
             style={{
@@ -475,7 +474,7 @@ const A4Content = ({ data }: { data: FacturePrintData }) => {
       <div className="header">
         <div className="logo-container">
           <img
-            src="/ktc.png"
+            src="/REG.jpeg"
             alt="Logo"
             className="logo-img"
             onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
@@ -542,61 +541,23 @@ const A4Content = ({ data }: { data: FacturePrintData }) => {
       <table>
         <thead>
           <tr>
-            <th>Réf.</th>
             <th>Désignation</th>
             <th className="text-center">Qté</th>
-            {!data.useGlobalRemise ? (
-              <>
-                <th className="text-right">PU HT<br />(avant rem.)</th>
-                <th className="text-right">Remise<br />(DT)</th>
-                <th className="text-right">PU HT<br />(base TVA)</th>
-              </>
-            ) : (
-              <th className="text-right">PU HT</th>
-            )}
+            <th className="text-right">PU HT</th>
             <th className="text-right">TVA %</th>
-            <th className="text-right">TVA</th>
             <th className="text-right">Total HT</th>
           </tr>
         </thead>
         <tbody>
           {data.lignes.map((ligne, idx) => {
-            // ✅ Calcul du prix unitaire après remise
-            const puApresRemise = ligne.quantite > 0
-              ? (ligne.totalHT || 0) / ligne.quantite
-              : 0;
-
             return (
               <tr key={idx}>
-                <td>{ligne.product?.reference || "-"}</td>
                 <td>{ligne.product?.designation || "-"}</td>
                 <td className="text-center">{ligne.quantite}</td>
-                {!data.useGlobalRemise ? (
-                  // ✅ Mode remises individuelles en DT
-                  <>
-                    <td className="text-right">
-                      {(ligne.prixUnitaireBrut || ligne.prixUnitaire || 0).toFixed(3)}
-                    </td>
-                    <td className="text-right">
-                      {(ligne.remiseLigne ?? 0) > 0 ? (
-                        <>
-                          <span style={{ color: 'red' }}>
-                            -{formatCurrency(ligne.remiseLigne || 0)}
-                          </span>
-                        </>
-                      ) : '-'}
-                    </td>
-                    <td className="text-right">
-                      {puApresRemise.toFixed(3)}
-                    </td>
-                  </>
-                ) : (
-                  <td className="text-right">
-                    {(ligne.prixUnitaire || 0).toFixed(3)}
-                  </td>
-                )}
+                <td className="text-right">
+                  {(ligne.prixUnitaire || 0).toFixed(3)}
+                </td>
                 <td className="text-right">{ligne.tva}%</td>
-                <td className="text-right">{formatCurrency(ligne.totalTVA || 0)}</td>
                 <td className="text-right">{formatCurrency(ligne.totalHT || 0)}</td>
               </tr>
             );
@@ -607,16 +568,14 @@ const A4Content = ({ data }: { data: FacturePrintData }) => {
       {/* Totaux */}
       <div className="totals-container">
         <div className="totals-table">
+          {(data.totalRemise ?? 0) !== 0 && (
+            <div className="total-row" style={{ color: 'red' }}>
+              <span>Total remise :</span>
+              <span>-{formatCurrency(data.totalRemise || 0)}</span>
+            </div>
+          )}
           <div className="total-row">
-            <span>Total HT avant remise :</span>
-            <span>{formatCurrency(data.totalHTBrut || 0)}</span>
-          </div>
-          <div className="total-row" style={{ color: 'red' }}>
-            <span>Total remise :</span>
-            <span>-{formatCurrency(data.totalRemise || 0)}</span>
-          </div>
-          <div className="total-row">
-            <span>Total HT après remise (base TVA) :</span>
+            <span>Total HT :</span>
             <span>{formatCurrency(data.totalHT)}</span>
           </div>
           <div className="total-row">
@@ -631,12 +590,6 @@ const A4Content = ({ data }: { data: FacturePrintData }) => {
             <span>Total TTC :</span>
             <span className="font-bold">{formatCurrency(data.totalTTC)}</span>
           </div>
-          <div className="total-row final" style={{ borderTop: '2px double #000', marginTop: '5px' }}>
-            <span style={{ fontSize: '1.1em' }}>Net à payer :</span>
-            <span style={{ fontSize: '1.2em', fontWeight: 'bold', color: '#000' }}>
-              {formatCurrency(data.totalTTC)}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -650,8 +603,6 @@ const A4Content = ({ data }: { data: FacturePrintData }) => {
           <div className="signature-label">Le client</div>
         </div>
       </div>
-
-      <PrintFooter format="A4" />
     </div>
   );
 };

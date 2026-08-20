@@ -6,12 +6,10 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = parseInt(searchParams.get('limit') || '10000');
     const skip = (page - 1) * limit;
-    const chantierId = searchParams.get('chantierId');
 
     const where: any = {};
-    if (chantierId) where.chantierId = chantierId;
 
     const [devis, total] = await Promise.all([
       prisma.devis.findMany({
@@ -20,11 +18,6 @@ export async function GET(req: NextRequest) {
         take: limit,
         include: {
           client: true,
-          chantier: { // ← AJOUT
-            include: {
-              client: true,
-            }
-          },
           lignes: { include: { product: true } },
         },
         orderBy: { date: 'desc' },
@@ -57,7 +50,6 @@ export async function POST(req: NextRequest) {
     const {
       numero,
       clientId,
-      chantierId, // ← AJOUT
       totalHT,
       totalTTC,
       validite,
@@ -74,24 +66,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Si un chantier est spécifié, vérifier qu'il existe
-    if (chantierId) {
-      const chantier = await prisma.chantier.findUnique({
-        where: { id: chantierId },
-      });
-      if (!chantier) {
-        return NextResponse.json(
-          { error: 'Chantier non trouvé' },
-          { status: 404 }
-        );
-      }
-    }
-
     const devis = await prisma.devis.create({
       data: {
         numero,
         clientId,
-        chantierId: chantierId || null, // ← AJOUT
         totalHT,
         totalTTC,
         validite: new Date(validite),
@@ -113,11 +91,6 @@ export async function POST(req: NextRequest) {
       },
       include: {
         client: true,
-        chantier: { // ← AJOUT
-          include: {
-            client: true,
-          }
-        },
         lignes: { include: { product: true } },
       },
     });

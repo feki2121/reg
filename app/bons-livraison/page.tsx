@@ -58,12 +58,6 @@ interface Client {
   estPasseParBL?: boolean;
 }
 
-interface Home {
-  id: string;
-  nom: string;
-  description: string | null;
-}
-
 interface Product {
   id: string;
   reference: string;
@@ -72,7 +66,6 @@ interface Product {
     prixVenteHT: number;
   quantiteStock: number;
   stockLocations?: Array<{
-    homeId: string;
     quantite: number;
   }>;
 }
@@ -81,8 +74,6 @@ interface LigneBL {
   id?: string;
   productId: string;
   product?: Product;
-  homeId: string;
-  home?: Home;
   quantite: number;
   prixVente?: number;
 }
@@ -104,10 +95,6 @@ interface BonLivraison {
   remise?: number;
     montantHTAvantRemise: number;
   totalHT: number;
-  chauffeur?: {
-    id: string;
-    nom: string;
-  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -129,7 +116,6 @@ export default function BonsLivraisonPage() {
   const [bonsLivraison, setBonsLivraison] = useState<BonLivraison[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [homes, setHomes] = useState<Home[]>([]);
   const [factures, setFactures] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -145,7 +131,6 @@ export default function BonsLivraisonPage() {
   const [tempDateDebut, setTempDateDebut] = useState<Date | undefined>();
   const [tempDateFin, setTempDateFin] = useState<Date | undefined>();
   const [tempClientId, setTempClientId] = useState<string>("all");
-  const [tempHome, setTempHome] = useState<string>("all");
   const [tempSelectedFilterClient, setTempSelectedFilterClient] = useState<{ value: string; label: string } | null>(null);
   const [userRole, setUserRole] = useState<string>("");
 
@@ -153,7 +138,6 @@ export default function BonsLivraisonPage() {
   const [activeDateDebut, setActiveDateDebut] = useState<Date | undefined>();
   const [activeDateFin, setActiveDateFin] = useState<Date | undefined>();
   const [activeClientId, setActiveClientId] = useState<string>("all");
-  const [activeHome, setActiveHome] = useState<string>("all");
 
   // Styles pour le select
   const selectStyles = {
@@ -188,8 +172,6 @@ export default function BonsLivraisonPage() {
     setIsMounted(true);
     fetchClients();
     fetchProducts();
-    fetchFactures();
-    fetchHomes();
     fetchUserRole();
   }, []);
 
@@ -219,7 +201,7 @@ export default function BonsLivraisonPage() {
     }
 
     fetchBonsLivraison();
-  }, [currentPage, activeDateDebut, activeDateFin, activeClientId, activeHome, userRole]); // ← Dépendances correctes
+  }, [currentPage, activeDateDebut, activeDateFin, activeClientId, userRole]); // ← Dépendances correctes
 
 
 
@@ -255,9 +237,6 @@ export default function BonsLivraisonPage() {
       }
       if (activeClientId && activeClientId !== 'all') {
         params.append('clientId', activeClientId);
-      }
-      if (activeHome && activeHome !== 'all') {
-        params.append('homeId', activeHome);
       }
 
       const response = await fetch(`/api/bon-livraisons?${params.toString()}`);
@@ -296,28 +275,6 @@ export default function BonsLivraisonPage() {
       setProducts(data.data || []);
     } catch (error) {
       console.error("Error fetching products:", error);
-    }
-  };
-
-  const fetchFactures = async () => {
-    try {
-      const response = await fetch("/api/factures?limit=100");
-      if (!response.ok) throw new Error("Erreur lors du chargement");
-      const data = await response.json();
-      setFactures(data.data || []);
-    } catch (error) {
-      console.error("Error fetching factures:", error);
-    }
-  };
-
-  const fetchHomes = async () => {
-    try {
-      const response = await fetch("/api/homes?limit=100");
-      if (!response.ok) throw new Error("Erreur lors du chargement");
-      const data = await response.json();
-      setHomes(data.data || []);
-    } catch (error) {
-      console.error("Error fetching homes:", error);
     }
   };
 
@@ -380,16 +337,9 @@ export default function BonsLivraisonPage() {
 
 
   const applyFilters = () => {
-    console.log('Application des filtres:');
-    console.log('tempDateDebut:', tempDateDebut);
-    console.log('tempDateFin:', tempDateFin);
-    console.log('tempClientId:', tempClientId);
-    console.log('tempHome:', tempHome);
-
     setActiveDateDebut(tempDateDebut);
     setActiveDateFin(tempDateFin);
     setActiveClientId(tempClientId);
-    setActiveHome(tempHome);
     setCurrentPage(1);
   };
 
@@ -398,12 +348,10 @@ export default function BonsLivraisonPage() {
     setTempDateDebut(undefined);
     setTempDateFin(undefined);
     setTempClientId("all");
-    setTempHome("all");
     setTempSelectedFilterClient(null);
     setActiveDateDebut(undefined);
     setActiveDateFin(undefined);
     setActiveClientId("all");
-    setActiveHome("all");
     setCurrentPage(1);
   };
 
@@ -492,7 +440,6 @@ export default function BonsLivraisonPage() {
             reference: ligne.product.reference,
             designation: ligne.product.designation,
           } : undefined,
-          home: ligne.home ? { nom: ligne.home.nom } : undefined,
           quantite: ligne.quantite,
           prixUnitaire: prixVente,
           totalLigne: ligne.quantite * prixVente,
@@ -568,7 +515,6 @@ export default function BonsLivraisonPage() {
             reference: ligne.product.reference,
             designation: ligne.product.designation,
           } : undefined,
-          home: ligne.home ? { nom: ligne.home.nom } : undefined,
           quantite: ligne.quantite,
           prixUnitaire: prixVente,
           totalLigne: ligne.quantite * prixVente,
@@ -632,7 +578,6 @@ export default function BonsLivraisonPage() {
           reference: ligne.product.reference,
           designation: ligne.product.designation,
         } : undefined,
-        home: ligne.home ? { nom: ligne.home.nom } : undefined,
         quantite: ligne.quantite,
         prixUnitaire: ligne.product?.prixVente || 0,
         totalLigne: ligne.quantite * (ligne.product?.prixVente || 0),
@@ -691,7 +636,6 @@ export default function BonsLivraisonPage() {
     { key: "articles" as const, header: "Articles", render: (item: BonLivraison) => <Badge variant="secondary">{item.lignes.length} article(s)</Badge> },
     { key: "factureId" as const, header: "Facture", render: (item: BonLivraison) => <span className={cn("text-sm", item.factureId ? "text-primary" : "text-muted-foreground")}>{item.factureId ? "Liée" : "Non liée"}</span> },
     { key: "totalttc" as const, header: "Total TTC", render: (item: BonLivraison) => <span className="font-medium">{formatCurrency(item.montantTotal)}</span> },
-    { key: "chauffeur" as const, header: "Chauffeur", render: (item: BonLivraison) => <span className="text-sm">{item.chauffeur?.nom || "Admin"}</span> },
 
     {
       key: "whatsapp" as const,
@@ -745,38 +689,6 @@ export default function BonsLivraisonPage() {
             title="Imprimer format A4 (2 copies)"
           >
             <Printer className="h-4 w-4" />
-          </Button>
-
-          {/* Bouton Ticket Société */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-blue-50 hover:bg-blue-100"
-            onClick={() => handlePrintTicket(item, 'SOCIETE')}
-            title="Ticket - Copie Société"
-          >
-            <Receipt className="h-4 w-4 text-blue-600" />
-          </Button>
-
-          {/* Bouton Ticket Client */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-green-50 hover:bg-green-100"
-            onClick={() => handlePrintTicket(item, 'CLIENT')}
-            title="Ticket - Copie Client"
-          >
-            <Receipt className="h-4 w-4 text-green-600" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-blue-50 hover:bg-blue-100"
-            onClick={() => handlePrintTicket2(item, 'SOCIETE')}
-            title="Ticket - Copie Société"
-          >
-            <Receipt className="h-4 w-4 text-blue-600" />
           </Button>
         </div>
       ),
@@ -899,22 +811,6 @@ export default function BonsLivraisonPage() {
                           styles={selectStyles}
                         />
                       )}
-                    </div>
-
-                    {/* Entrepôt */}
-                    <div className="space-y-2">
-                      <Label>Entrepôt</Label>
-                      <Select value={tempHome} onValueChange={setTempHome}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Tous les entrepôts" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Tous les entrepôts</SelectItem>
-                          {homes.map(home => (
-                            <SelectItem key={home.id} value={home.id}>{home.nom}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
 

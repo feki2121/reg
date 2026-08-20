@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/types";
-import { Loader2, Plus, Trash2, Save, ArrowLeft, Building2, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, ArrowLeft, Building2, AlertCircle, Wrench, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Select2 from "react-select";
 import Link from "next/link";
@@ -26,19 +26,13 @@ interface Client {
     email: string | null;
 }
 
-interface Chantier {
-    id: string;
-    nom: string;
-    reference?: string;
-    clientId?: string;
-}
-
 interface Product {
     id: string;
     reference: string;
     code: string;
     designation: string;
     prixVente: number;
+    prixVenteHT: number;
     tva: number;
     type: 'STOCK' | 'SERVICE';
     unite?: {
@@ -56,9 +50,11 @@ interface LigneFacture {
     productCode?: string;
     quantite: number;
     prixUnitaire: number;
+    prixUnitaireTTC: number;
     tva: number;
     remiseLigne: number;
     uniteSymbole?: string;
+    type?: 'STOCK' | 'SERVICE';
 }
 
 type OptionType = {
@@ -74,17 +70,24 @@ export default function CreerFacturePage() {
     const { toast } = useToast();
     const [isMounted, setIsMounted] = useState(false);
     const [clients, setClients] = useState<Client[]>([]);
-    const [chantiers, setChantiers] = useState<Chantier[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [services, setServices] = useState<Product[]>([]); // ← AJOUT: services uniquement
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [remise, setRemise] = useState(0);
     const [remiseType, setRemiseType] = useState<"PERCENT" | "FIXED">("PERCENT");
 
     const [selectedClientId, setSelectedClientId] = useState("");
-    const [selectedChantierId, setSelectedChantierId] = useState("");
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [lignes, setLignes] = useState<LigneFacture[]>([
-        { id: `ligne-${Date.now()}`, productId: "", quantite: 1, prixUnitaire: 0, tva: 19, remiseLigne: 0 }
+        {
+            id: `ligne-${Date.now()}`,
+            productId: "",
+            quantite: 1,
+            prixUnitaire: 0,
+            prixUnitaireTTC: 0,
+            tva: 0,
+            remiseLigne: 0
+        }
     ]);
 
     useEffect(() => {
@@ -93,19 +96,8 @@ export default function CreerFacturePage() {
 
     useEffect(() => {
         fetchClients();
-        fetchChantiers();
-        fetchProducts();
+        fetchServices(); // ← MODIFICATION: fetchServices au lieu de fetchProducts
     }, []);
-
-    // Effet pour mettre à jour le client quand le chantier change
-    useEffect(() => {
-        if (selectedChantierId) {
-            const chantier = chantiers.find((c) => c.id === selectedChantierId);
-            if (chantier && chantier.clientId) {
-                setSelectedClientId(chantier.clientId);
-            }
-        }
-    }, [selectedChantierId, chantiers]);
 
     const fetchClients = async () => {
         try {
@@ -118,26 +110,15 @@ export default function CreerFacturePage() {
         }
     };
 
-    const fetchChantiers = async () => {
+    // ← NOUVELLE FONCTION: Récupérer uniquement les services
+    const fetchServices = async () => {
         try {
-            const response = await fetch("/api/chantiers?limit=500");
+            const response = await fetch("/api/products?limit=1000&type=SERVICE");
             const data = await response.json();
-            setChantiers(data.data || []);
+            setServices(data.data || []);
         } catch (error) {
-            console.error("Error fetching chantiers:", error);
-        }
-    };
-
-    const fetchProducts = async () => {
-        try {
-            // const response = await fetch("/api/products?limit=1000&includeStock=true");
-            const response = await fetch("/api/products?limit=1000&includeStock=true&type=SERVICE");
-
-            const data = await response.json();
-            setProducts(data.data || []);
-        } catch (error) {
-            console.error("Error fetching products:", error);
-            toast({ title: "Erreur", description: "Impossible de charger les produits", variant: "destructive" });
+            console.error("Error fetching services:", error);
+            toast({ title: "Erreur", description: "Impossible de charger les services", variant: "destructive" });
         }
     };
 
@@ -147,7 +128,8 @@ export default function CreerFacturePage() {
             productId: "",
             quantite: 1,
             prixUnitaire: 0,
-            tva: 19,
+            prixUnitaireTTC: 0,
+            tva: 0,
             remiseLigne: 0
         }]);
     };
@@ -163,42 +145,52 @@ export default function CreerFacturePage() {
         newLignes[index] = { ...newLignes[index], [field]: value };
 
         if (field === 'productId' && value) {
-            const product = products.find(p => p.id === value);
+            const product = services.find(p => p.id === value); // ← MODIFICATION: utiliser services au lieu de products
             if (product) {
-                newLignes[index].prixUnitaire = product.prixVente;
+                // Pour les services, le prix est TTC
+                const prixTTC = product.prixVente;
+                const prixHT = product.prixVenteHT || (prixTTC / (1 + product.tva / 100));
+                newLignes[index].prixUnitaireTTC = prixTTC;
+                newLignes[index].prixUnitaire = prixHT;
                 newLignes[index].productDesignation = product.designation;
                 newLignes[index].productReference = product.reference;
                 newLignes[index].productCode = product.code;
                 newLignes[index].tva = product.tva;
                 newLignes[index].uniteSymbole = product.unite?.symbole || product.unite?.nom || 'pc';
+                newLignes[index].type = product.type;
             }
+        }
+
+        // Si on modifie le prix TTC, recalculer le HT
+        if (field === 'prixUnitaireTTC') {
+            const tva = newLignes[index].tva;
+            newLignes[index].prixUnitaire = tva > 0 ? value / (1 + tva / 100) : value;
+        }
+
+        // Si on modifie le prix HT, recalculer le TTC
+        if (field === 'prixUnitaire') {
+            const tva = newLignes[index].tva;
+            newLignes[index].prixUnitaireTTC = value * (1 + tva / 100);
+        }
+
+        // Si on modifie la TVA, recalculer les prix
+        if (field === 'tva') {
+            const prixHT = newLignes[index].prixUnitaire || 0;
+            newLignes[index].prixUnitaireTTC = prixHT * (1 + value / 100);
         }
 
         setLignes(newLignes);
     };
 
-    // Vérifier si tous les taux de TVA sont identiques
-    const hasMultipleTVA = useMemo(() => {
-        const tauxTVA = lignes
-            .filter(l => l.productId)
-            .map(l => l.tva || 19);
-        const tauxUniques = [...new Set(tauxTVA)];
-        return tauxUniques.length > 1;
-    }, [lignes]);
-
-    // Calcul des totaux avec la logique de remise
+    // Calcul des totaux
     const calculerTotaux = () => {
         const lignesValides = lignes.filter(l => l.productId && l.quantite > 0);
 
         if (lignesValides.length === 0) {
-            return { totalHT: 0, totalTVA: 0, totalTTC: 0, montantRemise: 0 };
+            return { totalHT: 0, totalTVA: 0, totalTTC: 0, montantRemise: 0, totalHTAvantRemise: 0, timbreFiscal: 1, totalTTCAvecTimbre: 1 };
         }
 
-        const tauxTVA = lignesValides.map(l => l.tva || 19);
-        const tauxUniques = [...new Set(tauxTVA)];
-        const allSameTVA = tauxUniques.length === 1;
-
-        // Calculer le total HT avant remise
+        // Calculer le total HT avant remise (utiliser prixUnitaire qui est le HT)
         const totalHTAvantRemise = lignesValides.reduce((sum, l) => sum + (l.quantite * l.prixUnitaire), 0);
 
         // Calculer le montant de la remise
@@ -209,41 +201,30 @@ export default function CreerFacturePage() {
             montantRemise = remise;
         }
 
-        let totalHT = 0;
+        let totalHT = totalHTAvantRemise - montantRemise;
         let totalTVA = 0;
         let totalTTC = 0;
 
-        if (allSameTVA) {
-            // Remise globale sur le total HT
-            totalHT = totalHTAvantRemise - montantRemise;
-            const tva = tauxUniques[0];
-            totalTVA = totalHT * (tva / 100);
-            totalTTC = totalHT + totalTVA;
-        } else {
-            // Remise proportionnelle sur chaque ligne
-            const lignesAvecRemise = lignesValides.map(l => {
-                const prixHTLigne = l.quantite * l.prixUnitaire;
-                const proportion = prixHTLigne / totalHTAvantRemise;
-                const remiseLigne = montantRemise * proportion;
-                const htApresRemise = prixHTLigne - remiseLigne;
-                const tvaLigne = htApresRemise * (l.tva / 100);
-                const ttcLigne = htApresRemise + tvaLigne;
+        // Calculer la TVA pour chaque ligne
+        lignesValides.forEach(l => {
+            const htLigne = l.quantite * l.prixUnitaire;
+            const proportion = htLigne / totalHTAvantRemise;
+            const remiseLigne = montantRemise * proportion;
+            const htApresRemise = htLigne - remiseLigne;
+            const tvaLigne = htApresRemise * (l.tva / 100);
 
-                return { htApresRemise, tvaLigne, ttcLigne };
-            });
-
-            totalHT = lignesAvecRemise.reduce((sum, l) => sum + l.htApresRemise, 0);
-            totalTVA = lignesAvecRemise.reduce((sum, l) => sum + l.tvaLigne, 0);
-            totalTTC = lignesAvecRemise.reduce((sum, l) => sum + l.ttcLigne, 0);
-        }
+            totalTVA += tvaLigne;
+            totalTTC += htApresRemise + tvaLigne;
+        });
 
         return {
-            totalHT,
-            totalTVA,
-            totalTTC,
-            montantRemise,
-            allSameTVA,
-            totalHTAvantRemise
+            totalHT: Number(totalHT.toFixed(3)),
+            totalTVA: Number(totalTVA.toFixed(3)),
+            totalTTC: Number(totalTTC.toFixed(3)),
+            timbreFiscal: 1,
+            totalTTCAvecTimbre: Number((totalTTC + 1).toFixed(3)),
+            montantRemise: Number(montantRemise.toFixed(3)),
+            totalHTAvantRemise: Number(totalHTAvantRemise.toFixed(3))
         };
     };
 
@@ -259,7 +240,7 @@ export default function CreerFacturePage() {
 
         const lignesValides = lignes.filter(l => l.productId && l.quantite > 0);
         if (lignesValides.length === 0) {
-            toast({ title: "Erreur", description: "Ajoutez au moins un produit", variant: "destructive" });
+            toast({ title: "Erreur", description: "Ajoutez au moins un service", variant: "destructive" });
             return;
         }
 
@@ -270,31 +251,34 @@ export default function CreerFacturePage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    numero: `FACT-${Date.now()}`,
+                    numero: `FACT-${Date.now()}`, 
                     clientId: selectedClientId,
-                    chantierId: selectedChantierId || null,
                     date: date,
+                    totalHT: totaux.totalHT,
+                    totalTVA: totaux.totalTVA,
+                    totalTTC: totaux.totalTTC,
                     lignes: lignesValides.map(l => ({
                         productId: l.productId,
                         quantite: l.quantite,
                         prixUnitaire: l.prixUnitaire,
+                        prixUnitaireTTC: l.prixUnitaireTTC,
                         tva: l.tva,
                         remiseLigne: l.remiseLigne || 0,
                         homeId: null,
+                        type: l.type || 'SERVICE',
                     })),
                     remise: remise,
-                    remiseType: remiseType,
                     statut: "IMPAYEE",
                     type: "DIRECTE",
                 }),
             });
 
             const result = await response.json();
-
+ 
             if (!response.ok) {
                 throw new Error(result.error || "Erreur lors de la création");
             }
-
+ 
             toast({ title: "Succès", description: "Facture créée avec succès" });
             router.push('/factures');
         } catch (error) {
@@ -309,22 +293,10 @@ export default function CreerFacturePage() {
         }
     };
 
-    // Options pour les produits
-    const options: OptionType[] = products.map((p) => ({
+    // Options pour les services uniquement
+    const options: OptionType[] = services.map((p) => ({
         value: p.id,
-        label: `${p.designation} (${p.unite?.symbole || p.unite?.nom || 'pc'})`,
-        data: p,
-    }));
-
-    const referenceOptions: OptionType[] = products.map((p) => ({
-        value: p.id,
-        label: `${p.reference} (${p.unite?.symbole || p.unite?.nom || 'pc'})`,
-        data: p,
-    }));
-
-    const codeOptions: OptionType[] = products.map((p) => ({
-        value: p.id,
-        label: `${p.code || p.reference} (${p.unite?.symbole || p.unite?.nom || 'pc'})`,
+        label: `${p.designation} ${p.unite?.symbole ? `(${p.unite.symbole})` : ''}`,
         data: p,
     }));
 
@@ -332,14 +304,17 @@ export default function CreerFacturePage() {
         <div className="flex min-h-screen bg-background flex-col md:flex-row">
             <Sidebar />
             <div className={cn("flex-1 transition-all duration-300", sidebarClasses)}>
-                <Header title="Nouvelle Facture" subtitle="Créer une facture" />
+                <Header title="Nouvelle Facture de Services" subtitle="Créer une facture pour des services" />
                 <main className="p-4 md:p-6">
-                    <Link href="/factures">
-                        <Button variant="outline" className="gap-2">
-                            <ArrowLeft className="h-4 w-4" />
-                            Retour à la liste
-                        </Button>
-                    </Link>
+                    <div className="mb-6">
+                        <Link href="/factures">
+                            <Button variant="outline" className="gap-2">
+                                <ArrowLeft className="h-4 w-4" />
+                                Retour à la liste
+                            </Button>
+                        </Link>
+                    </div>
+
                     <form onSubmit={handleSubmit}>
                         <div className="space-y-6">
                             {/* Informations générales */}
@@ -377,43 +352,6 @@ export default function CreerFacturePage() {
                                         </div>
 
                                         <div className="space-y-2">
-                                            <Label className="flex items-center gap-2">
-                                                <Building2 className="h-4 w-4 text-primary" />
-                                                Chantier
-                                            </Label>
-                                            {isMounted && (
-                                                <Select2
-                                                    options={[
-                                                        { value: "", label: "Aucun chantier" },
-                                                        ...chantiers.map(c => ({
-                                                            value: c.id,
-                                                            label: `${c.nom} ${c.reference ? `(${c.reference})` : ''}`
-                                                        }))
-                                                    ]}
-                                                    value={chantiers
-                                                        .map(c => ({ value: c.id, label: `${c.nom} ${c.reference ? `(${c.reference})` : ''}` }))
-                                                        .find(o => o.value === selectedChantierId) ||
-                                                        { value: "", label: "Aucun chantier" }}
-                                                    onChange={(selected: OptionType | null) => {
-                                                        setSelectedChantierId(selected?.value || "");
-                                                    }}
-                                                    placeholder="Sélectionner un chantier"
-                                                    isSearchable
-                                                    isClearable
-                                                    className="text-sm"
-                                                    classNamePrefix="select"
-                                                    menuPortalTarget={document.body}
-                                                    styles={{
-                                                        menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                                    }}
-                                                />
-                                            )}
-                                            <p className="text-xs text-muted-foreground">
-                                                Le client sera automatiquement associé si le chantier a un client
-                                            </p>
-                                        </div>
-
-                                        <div className="space-y-2">
                                             <Label>Date de la facture</Label>
                                             <Input
                                                 type="date"
@@ -425,12 +363,15 @@ export default function CreerFacturePage() {
                                 </CardContent>
                             </Card>
 
-                            {/* Produits */}
+                            {/* Services */}
                             <Card>
                                 <CardHeader className="flex flex-row items-center justify-between">
-                                    <CardTitle>Produits</CardTitle>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Wrench className="h-5 w-5 text-primary" />
+                                        Services
+                                    </CardTitle>
                                     <Button type="button" variant="outline" size="sm" onClick={addLigne}>
-                                        <Plus className="h-4 w-4 mr-1" /> Ajouter ligne
+                                        <Plus className="h-4 w-4 mr-1" /> Ajouter un service
                                     </Button>
                                 </CardHeader>
                                 <CardContent>
@@ -440,13 +381,11 @@ export default function CreerFacturePage() {
                                                 <TableHeader>
                                                     <TableRow>
                                                         <TableHead>Désignation</TableHead>
-                                                        {/* <TableHead>Référence</TableHead>
-                                                        <TableHead>Code</TableHead>
-                                                        <TableHead>Unité</TableHead> */}
-                                                        <TableHead>Quantité</TableHead>
-                                                        <TableHead>Prix Unitaire (HT)</TableHead>
-                                                        <TableHead>TVA</TableHead>
-                                                        <TableHead>Total HT</TableHead>
+                                                        <TableHead className="w-[80px]">Qté</TableHead>
+                                                        <TableHead className="w-[120px]">Prix HT</TableHead>
+                                                        <TableHead className="w-[120px]">Prix TTC</TableHead>
+                                                        <TableHead className="w-[80px]">TVA</TableHead>
+                                                        <TableHead className="w-[100px]">Total HT</TableHead>
                                                         <TableHead className="w-[50px]"></TableHead>
                                                     </TableRow>
                                                 </TableHeader>
@@ -461,7 +400,7 @@ export default function CreerFacturePage() {
                                                                         onChange={(selected: OptionType | null) =>
                                                                             updateLigne(idx, "productId", selected?.value || "")
                                                                         }
-                                                                        placeholder="Désignation"
+                                                                        placeholder="Rechercher un service..."
                                                                         isSearchable
                                                                         className="text-sm"
                                                                         classNamePrefix="select"
@@ -472,53 +411,6 @@ export default function CreerFacturePage() {
                                                                     />
                                                                 )}
                                                             </TableCell>
-
-                                                            {/* <TableCell className="min-w-[150px]">
-                                                                {isMounted && (
-                                                                    <Select2<OptionType>
-                                                                        options={referenceOptions}
-                                                                        value={referenceOptions.find(o => o.value === ligne.productId) || null}
-                                                                        onChange={(selected: OptionType | null) =>
-                                                                            updateLigne(idx, "productId", selected?.value || "")
-                                                                        }
-                                                                        placeholder="Référence"
-                                                                        isSearchable
-                                                                        className="text-sm"
-                                                                        classNamePrefix="select"
-                                                                        menuPortalTarget={document.body}
-                                                                        styles={{
-                                                                            menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                                                        }}
-                                                                    />
-                                                                )}
-                                                            </TableCell>
-
-                                                            <TableCell className="min-w-[150px]">
-                                                                {isMounted && (
-                                                                    <Select2<OptionType>
-                                                                        options={codeOptions}
-                                                                        value={codeOptions.find(o => o.value === ligne.productId) || null}
-                                                                        onChange={(selected: OptionType | null) =>
-                                                                            updateLigne(idx, "productId", selected?.value || "")
-                                                                        }
-                                                                        placeholder="Code"
-                                                                        isSearchable
-                                                                        className="text-sm"
-                                                                        classNamePrefix="select"
-                                                                        menuPortalTarget={document.body}
-                                                                        styles={{
-                                                                            menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                                                        }}
-                                                                    />
-                                                                )}
-                                                            </TableCell>
-
-                                                            <TableCell>
-                                                                <span className="text-sm font-medium">
-                                                                    {ligne.uniteSymbole || 'pc'}
-                                                                </span>
-                                                            </TableCell> */}
-
                                                             <TableCell>
                                                                 <Input
                                                                     type="number"
@@ -528,17 +420,24 @@ export default function CreerFacturePage() {
                                                                     className="w-20"
                                                                 />
                                                             </TableCell>
-
                                                             <TableCell>
                                                                 <Input
                                                                     type="number"
                                                                     step="0.001"
-                                                                    value={ligne.prixUnitaire}
+                                                                    value={ligne.prixUnitaire?.toFixed(3) ?? "0.000"}
                                                                     onChange={(e) => updateLigne(idx, 'prixUnitaire', parseFloat(e.target.value) || 0)}
                                                                     className="w-32"
                                                                 />
                                                             </TableCell>
-
+                                                            <TableCell>
+                                                                <Input
+                                                                    type="number"
+                                                                    step="0.001"
+                                                                    value={ligne.prixUnitaireTTC || 0}
+                                                                    onChange={(e) => updateLigne(idx, 'prixUnitaireTTC', parseFloat(e.target.value) || 0)}
+                                                                    className="w-32"
+                                                                />
+                                                            </TableCell>
                                                             <TableCell>
                                                                 <Input
                                                                     type="number"
@@ -548,11 +447,9 @@ export default function CreerFacturePage() {
                                                                     className="w-20"
                                                                 />
                                                             </TableCell>
-
                                                             <TableCell className="font-medium">
                                                                 {formatCurrency(ligne.quantite * ligne.prixUnitaire)}
                                                             </TableCell>
-
                                                             <TableCell>
                                                                 {lignes.length > 1 && (
                                                                     <Button
@@ -572,21 +469,11 @@ export default function CreerFacturePage() {
                                             </Table>
                                         </div>
 
-                                        {/* Section Remise - Affichage conditionnel */}
+                                        {/* Section Totaux */}
                                         {lignes.some(l => l.productId) && (
                                             <div className="pt-4 border-t">
                                                 <div className="flex flex-col items-end gap-2">
-                                                    {/* Avertissement si plusieurs taux de TVA */}
-                                                    {hasMultipleTVA && (
-                                                        <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-2 rounded-lg w-80">
-                                                            <AlertCircle className="h-4 w-4" />
-                                                            <span className="text-xs">
-                                                                La remise sera répartie proportionnellement sur chaque ligne
-                                                            </span>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Section Remise */}
+                                                    {/* Remise */}
                                                     <div className="flex items-center gap-2 w-80">
                                                         <Input
                                                             type="number"
@@ -633,19 +520,29 @@ export default function CreerFacturePage() {
                                                         </div>
                                                     )}
 
-                                                    <div className="flex justify-between w-80">
+                                                    <div className="flex justify-between w-80 text-sm">
                                                         <span>Total HT :</span>
                                                         <span className="font-semibold">{formatCurrency(totaux.totalHT)}</span>
                                                     </div>
 
-                                                    <div className="flex justify-between w-80">
+                                                    <div className="flex justify-between w-80 text-sm">
                                                         <span>TVA :</span>
                                                         <span className="font-semibold">{formatCurrency(totaux.totalTVA)}</span>
                                                     </div>
 
                                                     <div className="flex justify-between w-80 text-lg font-bold border-t pt-2 mt-1">
                                                         <span>Total TTC :</span>
-                                                        <span>{formatCurrency(totaux.totalTTC)}</span>
+                                                        <span className="text-primary">{formatCurrency(totaux.totalTTC)}</span>
+                                                    </div>
+
+                                                    <div className="flex justify-between w-80 text-sm border-t pt-2 mt-1">
+                                                        <span>Timbre Fiscal :</span>
+                                                        <span>{formatCurrency(totaux.timbreFiscal)}</span>
+                                                    </div>
+
+                                                    <div className="flex justify-between w-80 text-lg font-bold border-t pt-2 mt-1 text-green-600">
+                                                        <span>Total avec Timbre :</span>
+                                                        <span>{formatCurrency(totaux.totalTTCAvecTimbre)}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -659,15 +556,19 @@ export default function CreerFacturePage() {
                                 <Button type="button" variant="outline" onClick={() => router.push('/factures')}>
                                     Annuler
                                 </Button>
-                                <Button type="submit" disabled={isSubmitting || lignes.filter(l => l.productId).length === 0}>
+                                <Button
+                                    type="submit"
+                                    disabled={isSubmitting || lignes.filter(l => l.productId).length === 0}
+                                    className="gap-2"
+                                >
                                     {isSubmitting ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <Loader2 className="h-4 w-4 animate-spin" />
                                             Création...
                                         </>
                                     ) : (
                                         <>
-                                            <Save className="mr-2 h-4 w-4" />
+                                            <Save className="h-4 w-4" />
                                             Créer la facture
                                         </>
                                     )}

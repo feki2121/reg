@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1`,
       {
         headers: {
-          'User-Agent': 'KTC-Application/1.0',
+          'User-Agent': 'REG-Application/1.0',
         },
       }
     );
