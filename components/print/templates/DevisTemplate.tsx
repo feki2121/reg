@@ -9,10 +9,10 @@ interface DevisTemplateProps {
 }
 
 const DEFAULT_COMPANY = {
-  name: "KALLAL TECH COMPANY",
-  address: "01. Teniour chihia 3000 - SFAX",
+  name: "Respect Environnement Group",
+  address: "Résidence Essalem, bloc A au 1er étage, Bureau A.1-1, Ennasr 2 Ariana 2037	",
   phone: "25 535 035",
-  vat: "1860077 Q/A/M/000",
+  vat: "1615506X/A/M/000",
 };
 
 export const DevisTemplate: React.FC<DevisTemplateProps> = ({
@@ -62,7 +62,7 @@ export const DevisTemplate: React.FC<DevisTemplateProps> = ({
       <div className="header">
         <div className="logo-container">
           <img 
-            src="/ktc.png" 
+            src="/REG.jpeg" 
             alt="Logo" 
             className="logo-img" 
             onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
@@ -189,7 +189,7 @@ export const DevisTemplate: React.FC<DevisTemplateProps> = ({
           </div>
           <div className="signature-block">
             <div className="signature-line"></div>
-            <div className="signature-label">Pour KALLAL TECH COMPANY</div>
+            <div className="signature-label">Pour Respect Environnement Group</div>
           </div>
         </div>
       )}

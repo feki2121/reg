@@ -1,3 +1,4 @@
+// app/produits/nouveau/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -11,20 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, ArrowLeft, ImagePlus, X, Ruler, Package, Wrench } from "lucide-react";
+import { Loader2, Save, ArrowLeft, Package, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
-
-interface Category {
-  id: string;
-  nom: string;
-}
-
-interface Unite {
-  id: string;
-  nom: string;
-  symbole?: string;
-}
 
 type ProductType = "STOCK" | "SERVICE";
 
@@ -33,110 +23,20 @@ export default function CreerProduitPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isMounted, setIsMounted] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [unites, setUnites] = useState<Unite[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
   const [formData, setFormData] = useState({
     reference: "",
     code: "",
     designation: "",
-    categoryId: "",
-    uniteId: "",
-    type: "STOCK" as ProductType, // ← AJOUT: Type de produit
-    prixAchat: 0,
-    prixAchatHT: 0,
+    type: "SERVICE" as ProductType,
     prixVente: 0,
-    tva: 19,
-    marge: 0,
-    seuilAlerte: 5,
-    plafondRemise: 0,
+    tva: 19, // Valeur par défaut
   });
 
   useEffect(() => {
     setIsMounted(true);
-    fetchCategories();
-    fetchUnites();
   }, []);
-
-  const fetchCategories = async () => {
-    try {
-      const response = await fetch("/api/categories");
-      const data = await response.json();
-      setCategories(data.data || []);
-    } catch (error) {
-      console.error("Error fetching categories:", error);
-    }
-  };
-
-  const fetchUnites = async () => {
-    try {
-      const response = await fetch("/api/unites");
-      const data = await response.json();
-      setUnites(data.data || []);
-    } catch (error) {
-      console.error("Error fetching unites:", error);
-      setUnites([
-        { id: "default", nom: "Pièce", symbole: "pc" },
-      ]);
-    }
-  };
-
-  const handleHTChange = (value: number) => {
-    const tva = formData.tva || 0;
-    const ttc = value * (1 + tva / 100);
-
-    setFormData(prev => ({
-      ...prev,
-      prixAchatHT: value,
-      prixAchat: Number(ttc.toFixed(3)),
-    }));
-  };
-
-  const handleTTCChange = (value: number) => {
-    const tva = formData.tva || 0;
-    const ht = tva > 0 ? value / (1 + tva / 100) : value;
-
-    setFormData(prev => ({
-      ...prev,
-      prixAchat: value,
-      prixAchatHT: Number(ht.toFixed(3)),
-    }));
-  };
-
-  const handleTVAChange = (value: number) => {
-    const ht = formData.prixAchatHT || 0;
-    const ttc = ht * (1 + value / 100);
-
-    setFormData(prev => ({
-      ...prev,
-      tva: value,
-      prixAchat: Number(ttc.toFixed(3)),
-    }));
-  };
-
-  const handleMargeChange = (value: number) => {
-    const pa = formData.prixAchat;
-    const pv = pa * (1 + value / 100);
-
-    setFormData(prev => ({
-      ...prev,
-      marge: value,
-      prixVente: Number(pv.toFixed(3)),
-    }));
-  };
-
-  const handlePrixVenteChange = (value: number) => {
-    const pa = formData.prixAchat;
-    const marge = pa > 0 ? ((value - pa) / pa) * 100 : 0;
-
-    setFormData(prev => ({
-      ...prev,
-      prixVente: value,
-      marge: Number(marge.toFixed(2)),
-    }));
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -147,36 +47,25 @@ export default function CreerProduitPage() {
     setFormData(prev => ({
       ...prev,
       type: value,
-      // Si SERVICE, on reset les champs de stock
-      ...(value === 'SERVICE' ? {
-        prixAchat: 0,
-        prixAchatHT: 0,
-        seuilAlerte: 0,
-        plafondRemise: 0,
-        uniteId: "",
-        marge: 0,
-      } : {}),
-      // Si STOCK, on garde les valeurs existantes
+    }));
+  };
+
+  // ✅ Correction : Gestionnaire spécifique pour la TVA
+  const handleTvaChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tva: parseFloat(value)
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.reference || !formData.designation || !formData.categoryId) {
+    // Validation
+    if (!formData.designation) {
       toast({
         title: "Erreur",
-        description: "Veuillez remplir tous les champs obligatoires",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Pour les STOCK, vérifier le prix d'achat
-    if (formData.type === 'STOCK' && formData.prixAchat <= 0) {
-      toast({
-        title: "Erreur",
-        description: "Le prix d'achat doit être supérieur à 0 pour un article de type STOCK",
+        description: "La désignation est obligatoire",
         variant: "destructive"
       });
       return;
@@ -196,13 +85,12 @@ export default function CreerProduitPage() {
     try {
       const payload = {
         ...formData,
-        uniteId: formData.type === 'STOCK' ? formData.uniteId || null : null,
-        // Pour les services, on force les valeurs
-        prixAchat: formData.type === 'SERVICE' ? 0 : formData.prixAchat,
-        prixAchatHT: formData.type === 'SERVICE' ? 0 : formData.prixAchatHT,
-        seuilAlerte: formData.type === 'SERVICE' ? 0 : formData.seuilAlerte || 5,
-        plafondRemise: formData.type === 'SERVICE' ? 0 : formData.plafondRemise || 0,
+        reference: formData.type === 'SERVICE' ? undefined : formData.reference,
+        // ✅ S'assurer que la TVA est bien envoyée
+        tva: formData.tva,
       };
+
+      console.log("Payload envoyé:", payload); // Pour déboguer
 
       const response = await fetch("/api/products", {
         method: "POST",
@@ -216,7 +104,13 @@ export default function CreerProduitPage() {
         throw new Error(result.error || "Erreur lors de la création");
       }
 
-      toast({ title: "Succès", description: "Produit créé avec succès" });
+      toast({ 
+        title: "Succès", 
+        description: formData.type === 'SERVICE' 
+          ? "Service créé avec succès" 
+          : "Produit créé avec succès" 
+      });
+      
       router.push('/produits');
     } catch (error) {
       console.error("Error creating product:", error);
@@ -230,14 +124,16 @@ export default function CreerProduitPage() {
     }
   };
 
-  // Déterminer si c'est un STOCK
-  const isStock = formData.type === 'STOCK';
+  const isService = formData.type === 'SERVICE';
 
   return (
     <div className="flex min-h-screen bg-background flex-col md:flex-row">
       <Sidebar />
       <div className={cn("flex-1 transition-all duration-300", sidebarClasses)}>
-        <Header title="Nouveau Produit" subtitle="Créer un nouveau produit" />
+        <Header 
+          title={isService ? "Nouveau Service" : "Nouveau Produit"} 
+          subtitle={isService ? "Créer un nouveau service" : "Créer un nouveau produit"} 
+        />
         <main className="p-4 md:p-6">
           <div className="mb-6">
             <Link href="/produits">
@@ -251,56 +147,15 @@ export default function CreerProduitPage() {
           <form onSubmit={handleSubmit}>
             <Card>
               <CardHeader>
-                <CardTitle>Informations du produit</CardTitle>
+                <CardTitle>Informations générales</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Référence */}
-                  <div className="space-y-2">
-                    <Label>Référence *</Label>
-                    <Input
-                      name="reference"
-                      placeholder="REF-001"
-                      value={formData.reference}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  {/* Code */}
-                  <div className="space-y-2">
-                    <Label>
-                      Code
-                      <span className="text-muted-foreground ml-1 text-xs">
-                        (laissez vide pour auto-génération)
-                      </span>
-                    </Label>
-                    <Input
-                      name="code"
-                      placeholder="Auto-généré (ex: 2026-0001)"
-                      value={formData.code}
-                      onChange={handleInputChange}
-                      className={!formData.code ? "border-green-300 focus:border-green-500" : ""}
-                    />
-                  </div>
-
-                  {/* Désignation */}
-                  <div className="space-y-2">
-                    <Label>Désignation *</Label>
-                    <Input
-                      name="designation"
-                      placeholder="Nom du produit"
-                      value={formData.designation}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
-
-                  {/* === NOUVEAU CHAMP : TYPE D'ARTICLE === */}
+                  {/* Type d'article */}
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Package className="h-4 w-4 text-primary" />
-                      Type d'article *
+                      Type *
                     </Label>
                     <Select
                       value={formData.type}
@@ -310,101 +165,70 @@ export default function CreerProduitPage() {
                         <SelectValue placeholder="Sélectionner le type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="STOCK">
-                          <div className="flex items-center gap-2">
-                            <Package className="h-4 w-4" />
-                            <span>Stock (Matériaux)</span>
-                          </div>
-                        </SelectItem>
                         <SelectItem value="SERVICE">
                           <div className="flex items-center gap-2">
                             <Wrench className="h-4 w-4" />
                             <span>Service (Prestation)</span>
                           </div>
                         </SelectItem>
+                        <SelectItem value="STOCK">
+                          <div className="flex items-center gap-2">
+                            <Package className="h-4 w-4" />
+                            <span>Stock (Matériau)</span>
+                          </div>
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      {isStock
-                        ? "Article avec gestion de stock (quantité, entrepôt, prix d'achat)"
-                        : "Prestation sans gestion de stock (prix de vente uniquement)"}
+                      {isService
+                        ? "Prestation sans gestion de stock"
+                        : "Article avec gestion de stock"}
                     </p>
                   </div>
 
-                  {/* Unité - UNIQUEMENT pour STOCK */}
-                  {isStock && (
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Ruler className="h-4 w-4 text-primary" />
-                        Unité de mesure
-                      </Label>
-                      <Select
-                        value={formData.uniteId}
-                        onValueChange={(v) => setFormData(prev => ({ ...prev, uniteId: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Sélectionner une unité" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {unites.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.nom} {u.symbole ? `(${u.symbole})` : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Ex: Sac, Kg, m², Tonne, etc.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Prix d'achat (HT) - UNIQUEMENT pour STOCK */}
-                  {isStock && (
-                    <div className="space-y-2">
-                      <Label>Prix d'achat (HT) *</Label>
-                      <Input
-                        type="number"
-                        step="0.001"
-                        placeholder="0.000"
-                        value={formData.prixAchatHT === 0 ? "" : formData.prixAchatHT}
-                        onChange={(e) => handleHTChange(parseFloat(e.target.value) || 0)}
-                        required
-                      />
-                    </div>
-                  )}
-
-                  {/* TVA */}
+                  {/* Désignation */}
                   <div className="space-y-2">
-                    <Label>TVA (%)</Label>
-                    <select
-                      value={formData.tva}
-                      onChange={(e) => handleTVAChange(parseFloat(e.target.value) || 0)}
-                      className="w-full border rounded-lg px-3 py-2"
-                    >
-                      <option value={19}>19%</option>
-                      <option value={13}>13%</option>
-                      <option value={7}>7%</option>
-                      <option value={0}>0%</option>
-                    </select>
+                    <Label>Désignation *</Label>
+                    <Input
+                      name="designation"
+                      placeholder={isService ? "Nom du service" : "Nom du produit"}
+                      value={formData.designation}
+                      onChange={handleInputChange}
+                      required
+                    />
                   </div>
 
-                  {/* Prix d'achat (TTC) - UNIQUEMENT pour STOCK */}
-                  {isStock && (
+                  {/* Référence - Optionnel pour les services */}
+                  {!isService && (
                     <div className="space-y-2">
-                      <Label>Prix d'achat (TTC) *</Label>
+                      <Label>Référence *</Label>
                       <Input
-                        type="number"
-                        step="0.001"
-                        placeholder="0.000"
-                        value={formData.prixAchat === 0 ? "" : formData.prixAchat}
-                        onChange={(e) => handleTTCChange(parseFloat(e.target.value) || 0)}
+                        name="reference"
+                        placeholder="REF-001"
+                        value={formData.reference}
+                        onChange={handleInputChange}
                         required
                       />
                     </div>
                   )}
 
-                  {/* Prix de vente */}
+                  {/* Code - Optionnel pour tous */}
+                  <div className="space-y-2">
+                    <Label>
+                      Code
+                      <span className="text-muted-foreground ml-1 text-xs">
+                        (laissez vide pour auto-génération)
+                      </span>
+                    </Label>
+                    <Input
+                      name="code"
+                      placeholder="Auto-généré"
+                      value={formData.code}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+
+                  {/* Prix de vente TTC */}
                   <div className="space-y-2">
                     <Label>Prix de vente (TTC) *</Label>
                     <Input
@@ -412,60 +236,35 @@ export default function CreerProduitPage() {
                       step="0.001"
                       placeholder="0.000"
                       value={formData.prixVente === 0 ? "" : formData.prixVente}
-                      onChange={(e) => handlePrixVenteChange(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        prixVente: parseFloat(e.target.value) || 0
+                      }))}
                       required
                     />
                   </div>
 
-                  {/* Seuil d'alerte - UNIQUEMENT pour STOCK */}
-                  {isStock && (
-                    <div className="space-y-2">
-                      <Label>Seuil d'alerte</Label>
-                      <Input
-                        type="number"
-                        placeholder="5"
-                        value={formData.seuilAlerte === 5 ? "" : formData.seuilAlerte}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          seuilAlerte: parseInt(e.target.value) || 5
-                        }))}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Quantité minimale avant alerte de stock
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Plafond de remise - UNIQUEMENT pour STOCK */}
-                  {isStock && (
-                    <div className="space-y-2">
-                      <Label>Plafond de remise (DT)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder="0"
-                        value={formData.plafondRemise === 0 ? "" : formData.plafondRemise}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          plafondRemise: parseFloat(e.target.value) || 0
-                        }))}
-                      />
-                    </div>
-                  )}
-
-                  {/* Catégorie */}
+                  {/* ✅ TVA - Correction ici */}
                   <div className="space-y-2">
-                    <Label>Catégorie *</Label>
-                    <Select value={formData.categoryId} onValueChange={(v) => setFormData(prev => ({ ...prev, categoryId: v }))}>
+                    <Label>TVA (%)</Label>
+                    <Select
+                      value={formData.tva.toString()}
+                      onValueChange={handleTvaChange} // ✅ Utiliser le handler spécifique
+                    >
                       <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner une catégorie" />
+                        <SelectValue placeholder="Sélectionner la TVA" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.nom}</SelectItem>
-                        ))}
+                        <SelectItem value="19">19%</SelectItem>
+                        <SelectItem value="13">13%</SelectItem>
+                        <SelectItem value="7">7%</SelectItem>
+                        <SelectItem value="0">0%</SelectItem>
                       </SelectContent>
                     </Select>
+                    {/* ✅ Afficher la valeur sélectionnée pour déboguer */}
+                    <p className="text-xs text-muted-foreground">
+                      TVA sélectionnée : {formData.tva}%
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -484,7 +283,7 @@ export default function CreerProduitPage() {
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    Créer le produit
+                    {isService ? "Créer le service" : "Créer le produit"}
                   </>
                 )}
               </Button>

@@ -26,15 +26,6 @@ interface Client {
   email: string | null;
 }
 
-interface Chantier {
-  id: string;
-  nom: string;
-  reference?: string;
-  clientId?: string;
-  adresse?: string;
-  statut: string;
-}
-
 interface Product {
   id: string;
   reference: string;
@@ -82,7 +73,6 @@ export default function CreerDevisPage() {
   const { toast } = useToast();
   const [isMounted, setIsMounted] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
-  const [chantiers, setChantiers] = useState<Chantier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -90,7 +80,6 @@ export default function CreerDevisPage() {
   const [remiseType, setRemiseType] = useState<"PERCENT" | "FIXED">("PERCENT");
 
   const [selectedClientId, setSelectedClientId] = useState("");
-  const [selectedChantierId, setSelectedChantierId] = useState(""); // ← AJOUT
   const [validite, setValidite] = useState("");
   const [lignes, setLignes] = useState<LigneDevis[]>([]);
   const [showNewProductForm, setShowNewProductForm] = useState(false);
@@ -110,7 +99,6 @@ export default function CreerDevisPage() {
 
   useEffect(() => {
     fetchClients();
-    fetchChantiers(); // ← AJOUT
     fetchProducts();
     fetchCategories();
   }, []);
@@ -123,18 +111,6 @@ export default function CreerDevisPage() {
     } catch (error) {
       console.error("Error fetching clients:", error);
       toast({ title: "Erreur", description: "Impossible de charger les clients", variant: "destructive" });
-    }
-  };
-
-  // ← NOUVELLE FONCTION
-  const fetchChantiers = async () => {
-    try {
-      const response = await fetch("/api/chantiers?limit=500");
-      const data = await response.json();
-      setChantiers(data.data || []);
-    } catch (error) {
-      console.error("Error fetching chantiers:", error);
-      toast({ title: "Erreur", description: "Impossible de charger les chantiers", variant: "destructive" });
     }
   };
 
@@ -161,16 +137,6 @@ export default function CreerDevisPage() {
       console.error("Error fetching categories:", error);
     }
   };
-
-  // Effet pour mettre à jour le client quand le chantier change
-  useEffect(() => {
-    if (selectedChantierId) {
-      const chantier = chantiers.find((c) => c.id === selectedChantierId);
-      if (chantier && chantier.clientId) {
-        setSelectedClientId(chantier.clientId);
-      }
-    }
-  }, [selectedChantierId, chantiers]);
 
   const addLigne = () => {
     setLignes([...lignes, {
@@ -205,29 +171,6 @@ export default function CreerDevisPage() {
     }
 
     setLignes(newLignes);
-  };
-
-  const handleCreateNewProduct = () => {
-    if (!newProductData.reference || !newProductData.designation || !newProductData.categoryId) {
-      toast({ title: "Erreur", description: "Veuillez remplir tous les champs obligatoires", variant: "destructive" });
-      return;
-    }
-
-    const newLigne: LigneDevis = {
-      id: `new-${Date.now()}`,
-      productId: "",
-      quantite: 1,
-      prixUnitaire: newProductData.prixVente,
-      tva: newProductData.tva,
-      isNewProduct: true,
-      newProduct: { ...newProductData },
-    };
-
-    setLignes([...lignes, newLigne]);
-    setShowNewProductForm(false);
-    setNewProductData({ reference: "", code: "", designation: "", categoryId: "", prixVente: 0, tva: 19 });
-
-    toast({ title: "Succès", description: "Produit ajouté au devis" });
   };
 
   const calculerSousTotal = () => {
@@ -301,7 +244,6 @@ export default function CreerDevisPage() {
         body: JSON.stringify({
           numero: `DEV-${Date.now()}`,
           clientId: selectedClientId,
-          chantierId: selectedChantierId || null, // ← AJOUT
           totalHT: calculateTotalHT(),
           totalTTC: calculateTotalTTC(),
           validite,
@@ -336,14 +278,8 @@ export default function CreerDevisPage() {
   // Options pour les produits avec unité
   const options: OptionType[] = products.map((p) => ({
     value: p.id,
-    label: `${p.designation} (${p.unite?.symbole || p.unite?.nom || 'pc'})`,
+    label: `${p.designation}`,
   }));
-
-  const referenceOptions: OptionType[] = products.map((p) => ({
-    value: p.id,
-    label: `${p.reference} (${p.unite?.symbole || p.unite?.nom || 'pc'})`,
-  }));
-
 
   return (
     <div className="flex min-h-screen bg-background flex-col md:flex-row">
@@ -399,51 +335,6 @@ export default function CreerDevisPage() {
                       )}
                     </div>
 
-                    {/* ← NOUVEAU CHAMP : Chantier */}
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-primary" />
-                        Chantier
-                      </Label>
-                      {isMounted && (
-                        <Select2
-                          options={
-                            chantiers.length === 0
-                              ? [{ value: "", label: "Aucun chantier disponible" }]
-                              : [
-                                { value: "", label: "Aucun chantier" },
-                                ...chantiers.map(c => ({
-                                  value: c.id,
-                                  label: `${c.nom} ${c.reference ? `(${c.reference})` : ''}`
-                                }))
-                              ]
-                          }
-                          value={
-                            chantiers
-                              .map(c => ({ value: c.id, label: `${c.nom} ${c.reference ? `(${c.reference})` : ''}` }))
-                              .find(o => o.value === selectedChantierId) ||
-                            { value: "", label: "Aucun chantier" }
-                          }
-                          onChange={(selected: OptionType | null) => {
-                            const value = selected?.value || "";
-                            setSelectedChantierId(value);
-                          }}
-                          placeholder="Sélectionner un chantier"
-                          isSearchable
-                          isClearable
-                          className="text-sm"
-                          classNamePrefix="select"
-                          menuPortalTarget={document.body}
-                          styles={{
-                            menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                          }}
-                        />
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        Le client sera automatiquement associé si le chantier a un client
-                      </p>
-                    </div>
-
                     <div className="space-y-2">
                       <Label>Date de validité *</Label>
                       <Input
@@ -472,8 +363,6 @@ export default function CreerDevisPage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Désignation</TableHead>
-                            {/* <TableHead>Référence</TableHead> */}
-                            {/* <TableHead>Unité</TableHead> */}
                             <TableHead>Quantité</TableHead>
                             <TableHead>Prix Unitaire (TTC)</TableHead>
                             <TableHead>TVA</TableHead>
@@ -509,36 +398,6 @@ export default function CreerDevisPage() {
                                     />
                                   )}
                                 </TableCell>
-
-                                {/* <TableCell className="min-w-[200px]">
-                                  {ligne.isNewProduct ? (
-                                    <div className="text-sm text-green-600 border rounded p-2 bg-green-50">
-                                      {ligne.newProduct?.reference}
-                                    </div>
-                                  ) : isMounted && (
-                                    <Select2<OptionType>
-                                      options={referenceOptions}
-                                      value={referenceOptions.find(o => o.value === ligne.productId) || null}
-                                      onChange={(selected: OptionType | null) =>
-                                        updateLigne(idx, "productId", selected?.value || "")
-                                      }
-                                      placeholder="Sélectionner référence"
-                                      isSearchable
-                                      className="text-sm"
-                                      classNamePrefix="select"
-                                      menuPortalTarget={document.body}
-                                      styles={{
-                                        menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                      }}
-                                    />
-                                  )}
-                                </TableCell> */}
-
-                                {/* <TableCell>
-                                  <span className="text-sm font-medium">
-                                    {ligne.uniteSymbole || 'pc'}
-                                  </span>
-                                </TableCell> */}
 
                                 <TableCell>
                                   <Input

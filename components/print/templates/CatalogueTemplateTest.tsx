@@ -32,11 +32,11 @@ interface CatalogueTemplateTestProps {
 }
 
 const DEFAULT_COMPANY = {
-  name: "KALLAL TECH COMPANY",
-  address: "01. Teniour chihia 3000 - SFAX",
+  name: "Respect Environnement Group",
+  address: "Adresse : Résidence Essalem, Bloc A au 1er étage, Bureau A.1-1, Ennasr 2, Ariana 2037",
   phone: "25 535 035",
-  email: "kallel@gmail.com",
-  vat: "1860077 Q/A/M/000",
+  email: "reg@gmail.com",
+  vat: "1615506X/A/M/000",
 };
 
 const COLUMNS_PER_ROW = 4;

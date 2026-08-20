@@ -45,12 +45,6 @@ interface Client {
   longitude?: number | null;
 }
 
-interface Home {
-  id: string;
-  nom: string;
-  description: string | null;
-}
-
 interface Product {
   id: string;
   reference: string;
@@ -59,18 +53,13 @@ interface Product {
   tva: number;
   prixVente: number;
   quantiteStock: number;
-  stockLocations?: Array<{
-    homeId: string;
-    quantite: number;
-  }>;
+  type?: string;
 }
 
 interface LigneBL {
   id: string;
   productId: string;
   product?: Product;
-  homeId: string;
-  home?: Home;
   quantite: number;
   prixVente?: number;
 }
@@ -97,7 +86,6 @@ export default function CreerBonLivraisonPage() {
   const { toast } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [homes, setHomes] = useState<Home[]>([]);
   const [factures, setFactures] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReglementDialogOpen, setIsReglementDialogOpen] = useState(false);
@@ -109,11 +97,10 @@ export default function CreerBonLivraisonPage() {
   const [remise, setRemise] = useState<number>(0);
   const [typeRemise, setTypeRemise] = useState<'pourcentage' | 'montant'>('montant');
   const [lignes, setLignes] = useState<LigneBL[]>([
-    { id: `ligne-${Date.now()}`, productId: "", homeId: "", quantite: 1 }
+    { id: `ligne-${Date.now()}`, productId: "", quantite: 1 }
   ]);
   const { data: session } = useSession();
   const [userRole, setUserRole] = useState<string>("");
-  const [accessibleHomes, setAccessibleHomes] = useState<Home[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
   // AJOUTER ICI
@@ -130,8 +117,6 @@ export default function CreerBonLivraisonPage() {
   const [selectedClient, setSelectedClient] = useState<any>(null);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
-  const [defaultHomeId, setDefaultHomeId] = useState<string>("");
-  const [isLoadingDefaultHome, setIsLoadingDefaultHome] = useState(false);
   const [clientFormData, setClientFormData] = useState({
     nom: "",
     telephone: "",
@@ -144,34 +129,12 @@ export default function CreerBonLivraisonPage() {
     mf: "",
   });
 
-
-  // Fonction pour récupérer les emplacements accessibles
-  const fetchAccessibleHomes = async () => {
-    try {
-      const response = await fetch("/api/homes/accessibles");
-      if (response.ok) {
-        const data = await response.json();
-        setAccessibleHomes(data.data || []);
-      } else {
-        setAccessibleHomes(homes);
-      }
-    } catch (error) {
-      console.error("Error fetching accessible homes:", error);
-      setAccessibleHomes(homes);
-    }
-  };
-
-
   const fetchUserRole = async () => {
     try {
       const response = await fetch(`/api/users/me`);
       if (response.ok) {
         const data = await response.json();
         setUserRole(data.role || "ADMIN");
-        // Récupérer le homeId pour les chauffeurs
-        if (data.role === "CHAUFFEUR" && data.chauffeur?.vehicule?.homeId) {
-          setDefaultHomeId(data.chauffeur.vehicule.homeId);
-        }
       }
     } catch (error) {
       console.error("Error fetching user role:", error);
@@ -187,15 +150,8 @@ export default function CreerBonLivraisonPage() {
     fetchClients();
     fetchProducts();
     fetchFactures();
-    fetchHomes();
     fetchUserRole();
   }, []);
-
-  useEffect(() => {
-    if (homes.length > 0) {
-      fetchAccessibleHomes();
-    }
-  }, [homes]);
 
   const calculerSousTotal = () => {
     return lignes.reduce((sum, l) => {
@@ -255,54 +211,19 @@ export default function CreerBonLivraisonPage() {
     setPaiements([...paiements, { type: TypeReglement.CHEQUE, montant: 0, imageUrl: undefined }]);
   };
 
-  // Options pour les selects (comme dans BE)
-  const designationOptions = () => {
-    return products.map(product => ({
+ const designationOptions = () => {
+  return products.map(product => {
+    
+    let isDisabled = false;
+    
+    return {
       value: product.id,
       label: product.designation,
-      isDisabled: userRole === 'CHAUFFEUR' && defaultHomeId ? !product.stockLocations?.some(sl => sl.homeId === defaultHomeId && sl.quantite > 0) : product.quantiteStock === 0,
+      isDisabled: isDisabled,
       data: product
-    }));
-  };
-
-  const referenceOptions = () => {
-    return products.map(product => ({
-      value: product.id,
-      label: product.reference,
-      isDisabled: userRole === 'CHAUFFEUR' && defaultHomeId ? !product.stockLocations?.some(sl => sl.homeId === defaultHomeId && sl.quantite > 0) : product.quantiteStock === 0,
-      data: product
-    }));
-  };
-
-  const codeOptions = () => {
-    return products.map(product => ({
-      value: product.id,
-      label: product.code || product.reference,
-      isDisabled: userRole === 'CHAUFFEUR' && defaultHomeId ? !product.stockLocations?.some(sl => sl.homeId === defaultHomeId && sl.quantite > 0) : product.quantiteStock === 0,
-      data: product
-    }));
-  };
-
-  const getHomeOptions = (productId?: string) => {
-    if (userRole !== 'ADMIN') return [];
-
-    const homesToShow = homes;
-
-    return homesToShow.map(home => {
-      const stockDisponible = productId ? getStockDisponible(productId, home.id) : 0;
-      const isDisabled = productId ? stockDisponible <= 0 : true;
-
-      return {
-        value: home.id,
-        label: productId
-          ? `${home.nom} (Stock: ${stockDisponible})`
-          : home.nom,
-        isDisabled: isDisabled,
-        stock: stockDisponible,
-        data: home
-      };
-    });
-  };
+    };
+  });
+};
 
   const selectStyles = {
     control: (base: any, state: any) => ({
@@ -600,18 +521,10 @@ export default function CreerBonLivraisonPage() {
     return paiementsValides.length > 0 && Math.abs(totalPaiementsValides - finalTotal) <= 0.001 && finalTotal > 0;
   };
 
-  const getStockDisponible = (productId: string, homeId: string): number => {
-    const product = products.find(p => p.id === productId);
-    if (!product) return 0;
-    const stockLocation = product.stockLocations?.find(sl => sl.homeId === homeId);
-    return stockLocation?.quantite || 0;
-  };
-
   const addLigne = () => {
     setLignes([...lignes, {
       id: `ligne-${Date.now()}-${Math.random()}`,
       productId: "",
-      homeId: userRole === 'CHAUFFEUR' && defaultHomeId ? defaultHomeId : "",
       quantite: 1,
       prixVente: 0
     }]);
@@ -635,25 +548,10 @@ export default function CreerBonLivraisonPage() {
           product: product,
           prixVente: product.prixVente,  // Initialiser le prix avec la valeur du produit
         };
-
-        if (userRole === 'CHAUFFEUR' && defaultHomeId) {
-          const home = homes.find(h => h.id === defaultHomeId);
-          if (home) {
-            newLignes[index].homeId = defaultHomeId;
-            newLignes[index].home = home;
-          }
-        }
       }
-    } else if (field === 'homeId' && value) {
-      const home = homes.find(h => h.id === value);
-      if (home) {
-        newLignes[index] = {
-          ...newLignes[index],
-          homeId: value,
-          home: home,
-        };
-      }
-    } else if (field === 'quantite') {
+    } 
+   
+    else if (field === 'quantite') {
       newLignes[index] = {
         ...newLignes[index],
         quantite: value,
@@ -683,7 +581,8 @@ export default function CreerBonLivraisonPage() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch("/api/products?limit=1000&includeStock=true");
+      const response = await fetch("/api/products?limit=1000&includeStock=true&type=SERVICE");
+
       const data = await response.json();
       setProducts(data.data || []);
     } catch (error) {
@@ -702,16 +601,6 @@ export default function CreerBonLivraisonPage() {
     }
   };
 
-  const fetchHomes = async () => {
-    try {
-      const response = await fetch("/api/homes?limit=100");
-      const data = await response.json();
-      setHomes(data.data || []);
-    } catch (error) {
-      console.error("Error fetching homes:", error);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -723,30 +612,6 @@ export default function CreerBonLivraisonPage() {
     if (lignes.length === 0) {
       toast({ title: "Erreur", description: "Veuillez ajouter au moins un produit", variant: "destructive" });
       return;
-    }
-
-    const lignesSansHome = lignes.filter(l => !l.homeId);
-    if (lignesSansHome.length > 0) {
-      toast({
-        title: "Erreur",
-        description: "Toutes les lignes doivent avoir un emplacement assigné",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    for (const ligne of lignes) {
-      if (ligne.productId && ligne.homeId) {
-        const stockDisponible = getStockDisponible(ligne.productId, ligne.homeId);
-        if (stockDisponible < ligne.quantite) {
-          toast({
-            title: "Stock insuffisant",
-            description: `Stock disponible pour ${ligne.product?.designation} dans ${ligne.home?.nom}: ${stockDisponible} unités`,
-            variant: "destructive"
-          });
-          return;
-        }
-      }
     }
 
     const paiementsValides = paiements.filter(p => p.montant > 0);
@@ -773,7 +638,6 @@ export default function CreerBonLivraisonPage() {
         statut: StatutBL.EN_ATTENTE,
         lignes: lignes.map(l => ({
           productId: l.productId,
-          homeId: l.homeId,
           quantite: l.quantite,
           prixVente: l.prixVente ?? (l.product?.prixVente ?? 0),
         })),
@@ -1029,9 +893,6 @@ export default function CreerBonLivraisonPage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Désignation</TableHead>
-                            <TableHead>Référence</TableHead>
-                            <TableHead>Code</TableHead>
-                            {userRole === 'ADMIN' && <TableHead>Emplacement</TableHead>}
                             <TableHead>Quantité</TableHead>
                             <TableHead>TVA</TableHead>
                             <TableHead>Prix unitaire (TTC)</TableHead>
@@ -1066,87 +927,11 @@ export default function CreerBonLivraisonPage() {
                                 )}
                               </TableCell>
 
-                              {/* Colonne Référence - affiche la référence */}
-                              <TableCell className="min-w-[150px]">
-                                {isMounted && (
-                                  <Select2
-                                    options={referenceOptions()}
-                                    value={(() => {
-                                      const option = referenceOptions().find(o => o.value === ligne.productId);
-                                      // Pour l'affichage, on veut voir la référence, pas la désignation
-                                      return option ? { value: option.value, label: option.label } : null;
-                                    })()}
-                                    onChange={(selected: any) => {
-                                      updateLigne(idx, 'productId', selected?.value || "");
-                                      if (selected?.data) {
-                                        updateLigne(idx, 'prixVente', selected.data.prixVente);
-                                      }
-                                    }}
-                                    placeholder="Référence"
-                                    isSearchable
-                                    isClearable
-                                    className="text-sm"
-                                    classNamePrefix="select"
-                                    menuPortalTarget={document.body}
-                                    styles={selectStyles}
-                                  />
-                                )}
-                              </TableCell>
-
-                              {/* Colonne Code - affiche le code */}
-                              <TableCell className="min-w-[150px]">
-                                {isMounted && (
-                                  <Select2
-                                    options={codeOptions()}
-                                    value={(() => {
-                                      const option = codeOptions().find(o => o.value === ligne.productId);
-                                      return option ? { value: option.value, label: option.label } : null;
-                                    })()}
-                                    onChange={(selected: any) => {
-                                      updateLigne(idx, 'productId', selected?.value || "");
-                                      if (selected?.data) {
-                                        updateLigne(idx, 'prixVente', selected.data.prixVente);
-                                      }
-                                    }}
-                                    placeholder="Code"
-                                    isSearchable
-                                    isClearable
-                                    className="text-sm"
-                                    classNamePrefix="select"
-                                    menuPortalTarget={document.body}
-                                    styles={selectStyles}
-                                  />
-                                )}
-                              </TableCell>
-
-
-                              {/* Colonne Emplacement */}
-                              {userRole === 'ADMIN' && (
-                                <TableCell className="min-w-[200px]">
-                                  {isMounted && (
-                                    <Select2
-                                      options={getHomeOptions(ligne.productId)}
-                                      value={getHomeOptions(ligne.productId).find(o => o.value === ligne.homeId) || null}
-                                      onChange={(selected: any) => updateLigne(idx, 'homeId', selected?.value || "")}
-                                      placeholder={ligne.productId ? "Emplacement" : "Choisir produit d'abord"}
-                                      isSearchable
-                                      isClearable
-                                      isDisabled={!ligne.productId}
-                                      className="text-sm"
-                                      classNamePrefix="select"
-                                      menuPortalTarget={document.body}
-                                      styles={selectStyles}
-                                    />
-                                  )}
-                                </TableCell>
-                              )}
-
                               {/* Colonne Quantité */}
                               <TableCell>
                                 <Input
                                   type="number"
                                   min="1"
-                                  max={ligne.productId && ligne.homeId ? getStockDisponible(ligne.productId, ligne.homeId) : undefined}
                                   value={ligne.quantite === 0 ? '' : ligne.quantite}
                                   onChange={(e) => updateLigne(idx, 'quantite', parseInt(e.target.value) || 0)}
                                   className="w-24"

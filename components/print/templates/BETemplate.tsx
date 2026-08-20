@@ -9,10 +9,10 @@ interface BETemplateProps {
 }
 
 const DEFAULT_COMPANY = {
-    name: "KALLAL TECH COMPANY",
-    address: "01. Teniour chihia 3000 - SFAX",
+    name: "Respect Environnement Group",
+    address: "Résidence Essalem, bloc A au 1er étage, Bureau A.1-1, Ennasr 2 Ariana 2037	",
     phone: "25 535 035",
-    vat: "1860077 Q/A/M/000",
+    vat: "1615506X/A/M/000",
 };
 
 // Styles pour le format A4
@@ -306,7 +306,7 @@ export const BETemplate: React.FC<BETemplateProps> = ({
 
             {/* En-tête */}
             <div className="header">
-                <img src="/ktc.png" alt="Logo" className="logo-img" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
+                <img src="/REG.jpeg" alt="Logo" className="logo-img" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
                 <div className="invoice-title">BON D'ENTREE</div>
                 <div className="invoice-number">N°: {data.numero}</div>
                 <div className="date-block">{formattedDate}</div>
@@ -400,7 +400,7 @@ export const BETemplate: React.FC<BETemplateProps> = ({
             {/* En-tête */}
             <div className="header">
                 <div className="logo-container">
-                    <img src="/ktc.png" alt="Logo" className="logo-img" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
+                    <img src="/REG.jpeg" alt="Logo" className="logo-img" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
                 </div>
                 <div className="title-container">
                     <div className="invoice-title">BON D'ENTREE</div>

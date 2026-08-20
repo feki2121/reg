@@ -51,7 +51,7 @@
 //         {
 //           columns: [
 //             {
-//               text: 'KALLAL TECH COMPANY\nVente en Gros Produits Divers\n01. Teniour chihia 3000 - SFAX\nTél: 25 535 035\nT.V.A.: 1860077 Q/A/M/000',
+//               text: 'Respect Environnement Group\nVente en Gros Produits Divers\nRésidence Essalem, bloc A au 1er étage, Bureau A.1-1, Ennasr 2 Ariana 2037					\nTél: 25 535 035\nT.V.A.: 1615506X/A/M/000',
 //               style: 'companyInfo'
 //             },
 //             {
@@ -184,7 +184,7 @@
 //         fontSize: 10
 //       },
 //       footer: (currentPage: number, pageCount: number) => ({
-//         text: `KALLAL TECH COMPANY - 01. Teniour chihia 3000 - SFAX - Tél: 25 535 035 | Page ${currentPage}/${pageCount}`,
+//         text: `Respect Environnement Group - Résidence Essalem, bloc A au 1er étage, Bureau A.1-1, Ennasr 2 Ariana 2037					 - Tél: 25 535 035 | Page ${currentPage}/${pageCount}`,
 //         alignment: 'center',
 //         fontSize: 7,
 //         color: '#999',

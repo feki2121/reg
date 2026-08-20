@@ -1,410 +1,290 @@
+// app/api/factures/[id]/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 
-// GET - Récupérer une facture par ID
+// GET - Récupérer une facture spécifique
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { id } = await params;
+    try {
+        const session = await getServerSession();
+        if (!session) {
+            return NextResponse.json(
+                { error: 'Non authentifié' },
+                { status: 401 }
+            );
+        }
 
-    const facture = await prisma.facture.findUnique({
-      where: { id },
-      include: {
-        client: true,
-        lignes: {
-          include: {
-            product: true,
-            home: true,
-          },
-        },
-        bonLivraisonRef: true,
-      },
-    });
+        const { id } = await params;
 
-    if (!facture) {
-      return NextResponse.json(
-        { error: 'Facture non trouvée' },
-        { status: 404 }
-      );
+        const facture = await prisma.facture.findUnique({
+            where: { id },
+            include: {
+                client: true,
+                lignes: {
+                    include: {
+                        product: {
+                            include: {
+                                unite: true,
+                                category: true,
+                            }
+                        },
+                    },
+                },
+                reglements: {
+                    include: {
+                        reglement: true,
+                    }
+                },
+            },
+        });
+
+        if (!facture) {
+            return NextResponse.json(
+                { error: 'Facture non trouvée' },
+                { status: 404 }
+            );
+        }
+
+        return NextResponse.json(facture);
+    } catch (error) {
+        console.error('Error fetching facture:', error);
+        return NextResponse.json(
+            { error: 'Failed to fetch facture' },
+            { status: 500 }
+        );
     }
-
-    return NextResponse.json(facture);
-  } catch (error) {
-    console.error('Erreur GET facture:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Erreur serveur' },
-      { status: 500 }
-    );
-  }
 }
 
-// PUT - Modifier une facture
+// PUT - Mettre à jour une facture
 export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-    const {
-      numero,
-      clientId,
-      date,
-      totalHT,
-      totalTVA,
-      totalTTC,
-      remise,
-      statut,
-      type,
-      lignes,
-      bonsLivraisonIds,
-    } = body;
-
-    // Vérifier si la facture existe
-    const existingFacture = await prisma.facture.findUnique({
-      where: { id },
-      include: { lignes: true, bonLivraisonRef: true },
-    });
-
-    if (!existingFacture) {
-      return NextResponse.json(
-        { error: 'Facture non trouvée' },
-        { status: 404 }
-      );
-    }
-
-    if (!numero || !clientId) {
-      return NextResponse.json(
-        { error: 'Numéro et client sont requis' },
-        { status: 400 }
-      );
-    }
-
-    if (!lignes || lignes.length === 0) {
-      return NextResponse.json(
-        { error: 'Au moins une ligne est requise' },
-        { status: 400 }
-      );
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Si c'est une facture directe (sans BL), gérer l'ajustement de stock
-      const isDirecte = existingFacture.bonLivraisonId === null;
-      
-      if (isDirecte) {
-        // Récupérer les anciennes lignes pour ajuster le stock
-        const anciennesLignes = existingFacture.lignes;
-        
-        // Créer un Map des anciennes quantités par produit
-        const anciennesQuantites = new Map();
-        for (const ligne of anciennesLignes) {
-          anciennesQuantites.set(ligne.productId, ligne.quantite);
-        }
-
-        // 1.1 Restaurer l'ancien stock (annuler l'ancienne sortie)
-        for (const ligne of anciennesLignes) {
-          // Restaurer le stock FAC
-          await tx.stockParType.update({
-            where: {
-              productId_typeBE: {
-                productId: ligne.productId,
-                typeBE: 'FAC',
-              },
-            },
-            data: {
-              quantite: { increment: ligne.quantite },
-            },
-          });
-
-          // Restaurer le stock total
-          await tx.product.update({
-            where: { id: ligne.productId },
-            data: {
-              quantiteStock: { increment: ligne.quantite },
-            },
-          });
-        }
-
-        // 1.2 Vérifier le nouveau stock FAC pour les nouvelles lignes
-        for (const ligne of lignes) {
-          const stockFAC = await tx.stockParType.findUnique({
-            where: {
-              productId_typeBE: {
-                productId: ligne.productId,
-                typeBE: 'FAC',
-              },
-            },
-          });
-
-          const quantiteFAC = stockFAC?.quantite || 0;
-          const ancienneQuantite = anciennesQuantites.get(ligne.productId) || 0;
-          const nouvelleQuantite = ligne.quantite;
-          const quantiteSupplementaire = nouvelleQuantite - ancienneQuantite;
-
-          if (quantiteSupplementaire > 0 && quantiteFAC < quantiteSupplementaire) {
-            const product = await tx.product.findUnique({
-              where: { id: ligne.productId },
-            });
-            throw new Error(
-              `Stock FAC insuffisant pour "${product?.designation}". ` +
-              `Stock FAC disponible: ${quantiteFAC}, Besoin supplémentaire: ${quantiteSupplementaire}`
+    try {
+        const session = await getServerSession();
+        if (!session) {
+            return NextResponse.json(
+                { error: 'Non authentifié' },
+                { status: 401 }
             );
-          }
         }
 
-        // 1.3 Appliquer le nouveau stock
-        for (const ligne of lignes) {
-          const ancienneQuantite = anciennesQuantites.get(ligne.productId) || 0;
-          const difference = ligne.quantite - ancienneQuantite;
+        const { id } = await params;
+        const body = await request.json();
+        const { clientId, date, lignes, remise, statut, type } = body;
 
-          if (difference !== 0) {
-            // Mettre à jour le stock FAC
-            await tx.stockParType.update({
-              where: {
-                productId_typeBE: {
-                  productId: ligne.productId,
-                  typeBE: 'FAC',
-                },
-              },
-              data: {
-                quantite: { decrement: difference },
-              },
+        // Validation
+        if (!clientId || !lignes || lignes.length === 0) {
+            return NextResponse.json(
+                { error: 'Client et lignes sont requis' },
+                { status: 400 }
+            );
+        }
+
+        // Vérifier si la facture existe
+        const existingFacture = await prisma.facture.findUnique({
+            where: { id },
+            include: { lignes: true },
+        });
+
+        if (!existingFacture) {
+            return NextResponse.json(
+                { error: 'Facture non trouvée' },
+                { status: 404 }
+            );
+        }
+
+        // Vérifier si le client existe
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+        });
+
+        if (!client) {
+            return NextResponse.json(
+                { error: 'Client non trouvé' },
+                { status: 404 }
+            );
+        }
+
+        // Mettre à jour la facture
+        const facture = await prisma.$transaction(async (tx) => {
+            // Supprimer les anciennes lignes
+            await tx.ligneFacture.deleteMany({
+                where: { factureId: id },
             });
 
-            // Mettre à jour le stock total
-            await tx.product.update({
-              where: { id: ligne.productId },
-              data: {
-                quantiteStock: { decrement: difference },
-              },
-            });
-
-            // Créer un mouvement de stock pour l'ajustement
-            if (difference !== 0) {
-              await tx.stockMovement.create({
+            // Mettre à jour la facture
+            const updatedFacture = await tx.facture.update({
+                where: { id },
                 data: {
-                  productId: ligne.productId,
-                  type: difference > 0 ? 'SORTIE' : 'ENTREE',
-                  quantite: Math.abs(difference),
-                  motif: `Modification facture - Ajustement ${difference > 0 ? 'sortie' : 'retour'}`,
-                  date: new Date(),
+                    clientId,
+                    date: date ? new Date(date) : new Date(),
+                    statut: statut || existingFacture.statut,
+                    type: type || existingFacture.type,
+                    remise: remise || 0,
+                    lignes: {
+                        create: lignes.map((l: any) => ({
+                            productId: l.productId,
+                            quantite: l.quantite,
+                            prixUnitaire: l.prixUnitaire,
+                            remiseLigne: l.remiseLigne || 0,
+                            tva: l.tva ?? 19,
+                        })),
+                    },
                 },
-              });
-            }
-          }
-        }
-      }
+                include: {
+                    client: true,
+                    lignes: {
+                        include: {
+                            product: {
+                                include: {
+                                    unite: true,
+                                }
+                            },
+                        },
+                    },
+                },
+            });
 
-      // 2. Mettre à jour le solde du client
-      const ancienTotal = existingFacture.totalTTC;
-      const nouveauTotal = totalTTC || (totalHT + totalTVA);
-      const differenceSolde = nouveauTotal - ancienTotal;
+            // Recalculer les totaux (remise toujours en %)
+            const totalHTAvantRemise = updatedFacture.lignes.reduce((sum, l) => sum + (l.quantite * l.prixUnitaire), 0);
+            
+            // La remise est toujours appliquée en pourcentage
+            const montantRemise = totalHTAvantRemise > 0 ? (totalHTAvantRemise * (remise || 0)) / 100 : 0;
+            
+            let totalHT = totalHTAvantRemise - montantRemise;
+            let totalTVA = 0;
 
-      if (differenceSolde !== 0) {
-        await tx.client.update({
-          where: { id: clientId },
-          data: {
-            solde: { increment: differenceSolde },
-          },
+            updatedFacture.lignes.forEach(l => {
+                const htLigne = l.quantite * l.prixUnitaire;
+                const proportion = totalHTAvantRemise > 0 ? htLigne / totalHTAvantRemise : 0;
+                const remiseLigne = montantRemise * proportion;
+                const htApresRemise = htLigne - remiseLigne;
+                totalTVA += htApresRemise * ((l.tva ?? 19) / 100);
+            });
+
+            const totalTTC = totalHT + totalTVA;
+
+            // Mettre à jour les totaux
+            return await tx.facture.update({
+                where: { id },
+                data: {
+                    totalHT,
+                    totalTVA,
+                    totalTTC,
+                },
+                include: {
+                    client: true,
+                    lignes: {
+                        include: {
+                            product: {
+                                include: {
+                                    unite: true,
+                                }
+                            },
+                        },
+                    },
+                },
+            });
         });
-      }
 
-      // 3. Si le client a changé, ajuster le solde de l'ancien client
-      if (clientId !== existingFacture.clientId) {
-        // Enlever le montant de l'ancien client
-        await tx.client.update({
-          where: { id: existingFacture.clientId },
-          data: {
-            solde: { decrement: ancienTotal },
-          },
-        });
-        
-        // Ajouter au nouveau client (déjà fait dans l'étape 2)
-        // Donc on annule l'incrément du dessus pour le nouveau client
-        await tx.client.update({
-          where: { id: clientId },
-          data: {
-            solde: { increment: nouveauTotal },
-          },
-        });
-      }
-
-      // 4. Supprimer les anciennes lignes
-      await tx.ligneFacture.deleteMany({
-        where: { factureId: id },
-      });
-
-      // 5. Créer les nouvelles lignes
-      const nouvellesLignes = lignes.map((l: any) => ({
-        productId: l.productId,
-        homeId: l.homeId || null,
-        quantite: l.quantite,
-        prixUnitaire: l.prixUnitaire,
-        tva: l.tva || 19,
-      }));
-
-      // 6. Mettre à jour la facture
-      const facture = await tx.facture.update({
-        where: { id },
-        data: {
-          numero,
-          clientId,
-          date: new Date(date),
-          totalHT,
-          totalTVA,
-          totalTTC: nouveauTotal,
-          remise: remise || 0,
-          statut: statut || 'IMPAYEE',
-          type: type || 'DIRECTE',
-          lignes: {
-            create: nouvellesLignes,
-          },
-        },
-        include: {
-          client: true,
-          lignes: {
-            include: {
-              product: true,
-              home: true,
-            },
-          },
-          bonLivraisonRef: true,
-        },
-      });
-
-      // 7. Mettre à jour les références des BL si nécessaire
-      if (bonsLivraisonIds && bonsLivraisonIds.length > 0) {
-        // Détacher l'ancien BL si existant
-        if (existingFacture.bonLivraisonId) {
-          await tx.bonLivraison.update({
-            where: { id: existingFacture.bonLivraisonId },
-            data: {
-              factureId: null,
-              statut: 'EN_ATTENTE',
-            },
-          });
-        }
-
-        // Attacher les nouveaux BLs
-        await tx.bonLivraison.updateMany({
-          where: { id: { in: bonsLivraisonIds } },
-          data: {
-            factureId: facture.id,
-            statut: 'LIVRE',
-          },
-        });
-      }
-
-      return facture;
-    });
-
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Erreur PUT facture:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Erreur serveur' },
-      { status: 500 }
-    );
-  }
+        return NextResponse.json(facture);
+    } catch (error) {
+        console.error('Error updating facture:', error);
+        return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Failed to update facture' },
+            { status: 500 }
+        );
+    }
 }
 
 // DELETE - Supprimer une facture
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { id } = await params;
-
-    const facture = await prisma.facture.findUnique({
-      where: { id },
-      include: { 
-        lignes: true,
-        bonLivraisonRef: true 
-      },
-    });
-
-    if (!facture) {
-      return NextResponse.json(
-        { error: 'Facture non trouvée' },
-        { status: 404 }
-      );
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Si c'est une facture directe (sans BL), restaurer le stock
-      const isDirecte = facture.bonLivraisonId === null;
-      
-      if (isDirecte) {
-        for (const ligne of facture.lignes) {
-          // Restaurer le stock FAC
-          await tx.stockParType.update({
-            where: {
-              productId_typeBE: {
-                productId: ligne.productId,
-                typeBE: 'FAC',
-              },
-            },
-            data: {
-              quantite: { increment: ligne.quantite },
-            },
-          });
-
-          // Restaurer le stock total
-          await tx.product.update({
-            where: { id: ligne.productId },
-            data: {
-              quantiteStock: { increment: ligne.quantite },
-            },
-          });
-
-          // Créer un mouvement de stock pour le retour
-          await tx.stockMovement.create({
-            data: {
-              productId: ligne.productId,
-              type: 'ENTREE',
-              quantite: ligne.quantite,
-              motif: `Suppression facture - Annulation vente`,
-              date: new Date(),
-            },
-          });
+    try {
+        const session = await getServerSession();
+        if (!session) {
+            return NextResponse.json(
+                { error: 'Non authentifié' },
+                { status: 401 }
+            );
         }
-      } else {
-        // 2. Si la facture vient d'un BL, détacher le BL
-        await tx.bonLivraison.updateMany({
-          where: { factureId: id },
-          data: {
-            factureId: null,
-            statut: 'EN_ATTENTE',
-          },
+
+        const { id } = await params;
+
+        // Vérifier si la facture existe
+        const existingFacture = await prisma.facture.findUnique({
+            where: { id },
+            include: { 
+                reglements: true,
+                bonLivraisons: true,
+                retourClients: true,
+            },
         });
-      }
 
-      // 3. Enlever le montant du solde du client
-      await tx.client.update({
-        where: { id: facture.clientId },
-        data: {
-          solde: { decrement: facture.totalTTC },
-        },
-      });
+        if (!existingFacture) {
+            return NextResponse.json(
+                { error: 'Facture non trouvée' },
+                { status: 404 }
+            );
+        }
 
-      // 4. Supprimer la facture (les lignes seront supprimées automatiquement)
-      await tx.facture.delete({
-        where: { id },
-      });
-    });
+        // Vérifier si la facture a des règlements
+        if (existingFacture.reglements.length > 0) {
+            return NextResponse.json(
+                { error: 'Impossible de supprimer une facture qui a des règlements associés' },
+                { status: 400 }
+            );
+        }
 
-    return NextResponse.json(
-      { message: 'Facture supprimée avec succès' },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Erreur DELETE facture:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Erreur serveur' },
-      { status: 500 }
-    );
-  }
+        // Vérifier si la facture a des bons de livraison
+        if (existingFacture.bonLivraisons.length > 0) {
+            return NextResponse.json(
+                { error: 'Impossible de supprimer une facture qui a des bons de livraison associés' },
+                { status: 400 }
+            );
+        }
+
+        // Vérifier si la facture a des retours clients
+        if (existingFacture.retourClients.length > 0) {
+            return NextResponse.json(
+                { error: 'Impossible de supprimer une facture qui a des retours clients associés' },
+                { status: 400 }
+            );
+        }
+
+        // Supprimer la facture (et cascade les lignes et retours)
+        await prisma.$transaction(async (tx) => {
+            // Supprimer les retours clients associés
+            await tx.retourClient.deleteMany({
+                where: { factureId: id },
+            });
+
+            // Supprimer les lignes de facture
+            await tx.ligneFacture.deleteMany({
+                where: { factureId: id },
+            });
+
+            // Puis supprimer la facture
+            await tx.facture.delete({
+                where: { id },
+            });
+        });
+
+        return NextResponse.json(
+            { message: 'Facture supprimée avec succès' },
+            { status: 200 }
+        );
+    } catch (error) {
+        console.error('Error deleting facture:', error);
+        return NextResponse.json(
+            { error: error instanceof Error ? error.message : 'Failed to delete facture' },
+            { status: 500 }
+        );
+    }
 }
